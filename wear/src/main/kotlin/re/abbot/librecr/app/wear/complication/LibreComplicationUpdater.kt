@@ -9,6 +9,7 @@ object LibreComplicationUpdater {
     fun requestAll(context: Context, lifeCount: Int? = null) {
         request(context, AgeDeltaComplicationService::class.java, lifeCount)
         request(context, TrendAboveValueComplicationService::class.java, lifeCount)
+        request(context, DateComplicationService::class.java, lifeCount)
     }
 
     private fun request(context: Context, serviceClass: Class<*>, lifeCount: Int?) {

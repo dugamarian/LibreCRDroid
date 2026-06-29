@@ -17,9 +17,8 @@ class PhoneCert(val raw: ByteArray) {
     }
 
     /**
-     * First-pair Phase 5 static-scalar policy inferred from LibreCRKit:
-     * the captured `03 03` certificate family uses the native index-1
-     * static scalar window instead of the entry-source-derived default.
+     * First-pair Phase 5 static-scalar policy keyed on certificate family.
+     * The live-sensor `03 03` family uses the native index-1 scalar window.
      */
     val phase5StaticScalarWindowOverride: ByteArray?
         get() = if (raw[0] == 0x03.toByte() && raw[1] == 0x03.toByte()) {
@@ -31,11 +30,20 @@ class PhoneCert(val raw: ByteArray) {
     companion object {
         const val TOTAL_SIZE = 162
 
-        /** Loads the bundled `phone_cert_firstpair.bin` from runtime_tables. */
+        /**
+         * Loads the `03 00` candidate used by tests and controlled experiments.
+         * Live fresh sensors reject this family; use [bundled162b] for pairing.
+         */
         fun bundledFirstPair(): PhoneCert = bundled("phone_cert_firstpair")
 
-        /** Loads the captured `03 03` certificate used by the iOS first-pair candidate path. */
-        fun bundledCapturedUser(): PhoneCert = bundled("phone_cert_162b")
+        /**
+         * Loads the bundled universal `03 03` certificate that pairs live fresh
+         * sensors when coupled to the native-ephemeral Phase 5 derivation.
+         */
+        fun bundled162b(): PhoneCert = bundled("phone_cert_162b")
+
+        @Deprecated("Use bundled162b(); the certificate is a universal static artifact, not user-specific.")
+        fun bundledCapturedUser(): PhoneCert = bundled162b()
 
         fun bundled(resource: String): PhoneCert {
             val path = "/runtime_tables/$resource.bin"

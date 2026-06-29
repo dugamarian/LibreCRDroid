@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,6 +40,7 @@ import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.ble.GlucoseUi
 import re.abbot.librecr.app.data.SensorStateStore
+import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.app.log.GlucoseTimelineTracker
 import re.abbot.librecr.app.stats.GlucoseSample
 import re.abbot.librecr.app.ui.chart.GlucoseChartCard
@@ -48,10 +50,14 @@ import re.abbot.librecr.app.ui.common.TrendArrow
 import re.abbot.librecr.app.ui.common.readingAgeText
 import re.abbot.librecr.app.ui.common.trendLabel
 import re.abbot.librecr.app.ui.theme.LocalGlucoseColors
+import re.abbot.librecr.protocol.TrendArrowShape
+import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 import re.abbot.librecr.protocol.dataplane.SensorLifecycle
 import re.abbot.librecr.protocol.dataplane.SensorLifecyclePhase
 
 private const val CHART_HISTORY_MS = 72L * 60L * 60L * 1000L
+private val AttentionRed = Color(0xFFE53935)
+private val AttentionAmber = Color(0xFFFFB300)
 
 @Composable
 fun HomeScreen(modifier: Modifier = Modifier) {
@@ -63,13 +69,16 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     val session by LibreCR.store.sessionFlow.collectAsState(initial = null)
     val lifecycle by LibreCR.store.sensorLifecycleFlow.collectAsState(initial = null)
     val warmup by LibreCR.store.sensorWarmupFlow.collectAsState(initial = null)
+    val sensorStatus by LibreCR.store.sensorStatusFlow.collectAsState(initial = null)
     val state by LibreCR.manager.state.collectAsState()
     val statusLine by LibreCR.manager.statusLine.collectAsState()
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val glucose: GlucoseUi? = local?.takeIf { it.usable && it.mgDL != null } ?: remote?.let {
-        GlucoseUi(it.mgDL, it.trend, it.lifeCount, it.mgDL in 40..400, it.receivedAtMs)
-    }
+    val glucose: GlucoseUi? = local
+        ?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs, nowMs) }
+        ?: remote?.takeIf { isFreshGlucose(it.receivedAtMs, nowMs) }?.let {
+            GlucoseUi(it.mgDL, it.trend, it.lifeCount, it.mgDL in 40..400, it.receivedAtMs, it.deltaMgDlPerMin)
+        }
     // Closes the watch→phone timeline: the relayed reading is now on screen. Keyed by the
     // reading's identity so it fires once per reading, not on every recomposition.
     LaunchedEffect(glucose?.lifeCount, glucose?.receivedAtMs) {
@@ -112,9 +121,9 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     ?: MaterialTheme.colorScheme.onSurface
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = mgDl?.let { settings.unit.format(it) } ?: "--",
-                        fontSize = 76.sp,
-                        lineHeight = 80.sp,
+                        text = mgDl?.let { settings.unit.format(it) } ?: "Sensor Error",
+                        fontSize = if (mgDl == null) 36.sp else 76.sp,
+                        lineHeight = if (mgDl == null) 40.sp else 80.sp,
                         fontWeight = FontWeight.Bold,
                         color = valueColor,
                     )
@@ -123,7 +132,13 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        TrendArrow(glucose?.trend, valueColor, size = 32.dp)
+                        if (TrendArrowShape.hasArrow(glucose?.trend)) {
+                            TrendArrow(
+                                trend = glucose?.trend,
+                                color = valueColor,
+                                size = 32.dp,
+                            )
+                        }
                         Text(
                             settings.unit.label,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -145,15 +160,13 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             RangePill(mgDl, settings.targetLow, settings.targetHigh)
-                            Text(
-                                trendLabel(glucose?.trend),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                     }
                 }
             }
         }
+
+        sensorStatus?.attention?.let { SensorAttentionCard(it) }
 
         SensorLifecycleCard(
             session = session,
@@ -168,6 +181,47 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         RecentHistoryCard(ring, settings.unit, settings.targetLow, settings.targetHigh)
 
         ConnectionStatusCard(state, statusLine)
+    }
+}
+
+private data class SensorAttentionPresentation(val title: String, val detail: String, val color: Color)
+
+private fun sensorAttentionPresentation(attention: Libre3SensorAttention): SensorAttentionPresentation? = when (attention) {
+    Libre3SensorAttention.None -> null
+    Libre3SensorAttention.CheckSensor ->
+        SensorAttentionPresentation("Verifică senzorul", "Senzorul raportează o problemă de inserție.", AttentionAmber)
+    Libre3SensorAttention.SensorEnded ->
+        SensorAttentionPresentation("Senzor încheiat", "Sesiunea senzorului s-a încheiat.", AttentionRed)
+    Libre3SensorAttention.ReplaceSensor ->
+        SensorAttentionPresentation("Înlocuiește senzorul", "Senzorul a raportat o eroare și trebuie înlocuit.", AttentionRed)
+    is Libre3SensorAttention.Unknown ->
+        SensorAttentionPresentation("Eroare senzor", "Cod necunoscut raportat de senzor (${attention.code}).", AttentionRed)
+}
+
+@Composable
+private fun SensorAttentionCard(attention: Libre3SensorAttention) {
+    val presentation = sensorAttentionPresentation(attention) ?: return
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(presentation.color),
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(presentation.title, fontWeight = FontWeight.SemiBold, color = presentation.color)
+                Text(
+                    presentation.detail,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }
 
@@ -299,7 +353,13 @@ private fun RecentHistoryCard(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                     Box(Modifier.size(10.dp).clip(CircleShape).background(color))
                     Text(timeHm(r.receivedAtMs), modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TrendArrow(r.trend, MaterialTheme.colorScheme.onSurfaceVariant, size = 18.dp)
+                    if (TrendArrowShape.hasArrow(r.trend)) {
+                        TrendArrow(
+                            trend = r.trend,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            size = 18.dp,
+                        )
+                    }
                     Text(unit.formatWithUnit(r.mgDL), fontWeight = FontWeight.SemiBold, color = color)
                 }
             }

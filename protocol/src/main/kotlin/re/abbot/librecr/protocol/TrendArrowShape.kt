@@ -29,8 +29,26 @@ object TrendArrowShape {
         Segment(0.62f, 0.72f, 0.82f, 0.50f), // lower barb
     )
 
+    /** Canonical trend name to render. The trend comes from the sensor, never from glucose delta. */
+    fun resolvedTrend(trend: String?, deltaMgDlPerMin: Double? = null): String? =
+        canonicalTrend(trend)
+
     /** Clockwise rotation in degrees for a trend name, or null when there is no arrow to draw. */
-    fun rotationDegrees(trend: String?): Float? = when (trend) {
+    fun rotationDegrees(trend: String?): Float? = rotationForCanonical(canonicalTrend(trend))
+
+    /**
+     * Clockwise rotation in degrees. [deltaMgDlPerMin] is accepted for source compatibility, but
+     * deliberately ignored so UI surfaces show the sensor-reported trend exactly.
+     */
+    fun rotationDegrees(trend: String?, deltaMgDlPerMin: Double?): Float? =
+        rotationDegrees(trend)
+
+    fun hasArrow(trend: String?): Boolean = rotationDegrees(trend) != null
+
+    fun hasArrow(trend: String?, deltaMgDlPerMin: Double?): Boolean =
+        hasArrow(trend)
+
+    private fun rotationForCanonical(trend: String?): Float? = when (trend) {
         "FALLING_QUICKLY" -> 90f
         "FALLING" -> 45f
         "STABLE" -> 0f
@@ -39,5 +57,15 @@ object TrendArrowShape {
         else -> null
     }
 
-    fun hasArrow(trend: String?): Boolean = rotationDegrees(trend) != null
+    private fun canonicalTrend(trend: String?): String? {
+        val raw = trend?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return when (raw.uppercase().replace('-', '_').replace(' ', '_')) {
+            "1", "FALLING_QUICKLY", "FALLINGQUICKLY", "DOUBLE_DOWN", "DOWN_FAST", "FAST_DOWN" -> "FALLING_QUICKLY"
+            "2", "FALLING", "DOWN" -> "FALLING"
+            "3", "STABLE", "FLAT", "STEADY" -> "STABLE"
+            "4", "RISING", "UP" -> "RISING"
+            "5", "RISING_QUICKLY", "RISINGQUICKLY", "DOUBLE_UP", "UP_FAST", "FAST_UP" -> "RISING_QUICKLY"
+            else -> null
+        }
+    }
 }

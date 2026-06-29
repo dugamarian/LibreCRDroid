@@ -41,6 +41,10 @@ class PatchControlCommand private constructor(val label: String, val plaintext: 
         fun factoryData() =
             PatchControlCommand("factory data", byteArrayOf(0x06, 0, 0, 0, 0, 0, 0))
 
+        /**
+         * Terminal sensor shutdown/end-session command. This is not part of
+         * routine disconnect, reconnect, or bounded backfill.
+         */
         fun shutdownPatch() =
             PatchControlCommand("shutdown patch", byteArrayOf(0x05, 0, 0, 0, 0, 0, 0))
     }

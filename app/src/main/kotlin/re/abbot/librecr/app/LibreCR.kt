@@ -4,8 +4,11 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.alarm.GlucoseAlarmManager
@@ -14,6 +17,7 @@ import re.abbot.librecr.app.data.GlucoseHistoryStore
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.SettingsStore
 import re.abbot.librecr.app.libreview.LibreViewUploader
+import re.abbot.librecr.app.live.LiveUpdatesNotifier
 import re.abbot.librecr.app.stats.GlucoseSample
 import re.abbot.librecr.app.ui.standby.StandbyController
 import re.abbot.librecr.app.wear.WearDataSync
@@ -35,7 +39,8 @@ object LibreCR {
     lateinit var uploader: LibreViewUploader
         private set
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Process-lifetime scope for work that must outlive any single screen (e.g. the watch handoff). */
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Synchronized
     fun init(context: Context) {
@@ -46,19 +51,35 @@ object LibreCR {
         manager = SensorConnectionManager(app, store)
         settings = SettingsStore(app)
         uploader = LibreViewUploader(app, settings, store)
+        appScope.launch {
+            store.clearCurrentGlucoseIfStale()
+        }
         // Register the standby power receiver so a wireless-charger connection launches StandbyActivity
         // even when the main UI isn't foreground.
         StandbyController.init(app)
         // Per-reading processing keyed on the data funnel, not on a single transport: every reading
         // (phone BLE via the manager, or watch relay via PhoneWearListenerService) lands here. So
         // alarms and cloud upload work even when the phone's foreground service isn't the collector.
-        scope.launch {
+        appScope.launch {
             settings.settingsFlow
                 .map { it.wearAppearance }
                 .distinctUntilChanged()
                 .collect { WearDataSync.sendAppearance(app, it) }
         }
-        scope.launch {
+        appScope.launch {
+            combine(
+                settings.settingsFlow,
+                store.lastGlucoseFlow,
+                store.sensorLifecycleFlow,
+                store.sessionFlow,
+                liveUpdateTicker(),
+            ) { appSettings, reading, lifecycle, session, _ ->
+                LiveUpdatesNotifier.State(appSettings.liveUpdates, appSettings.unit, reading, lifecycle, session)
+            }.collect { state ->
+                LiveUpdatesNotifier.update(app, state)
+            }
+        }
+        appScope.launch {
             store.glucoseHistoryFlow.collect { history ->
                 val r = history.lastOrNull() ?: return@collect
                 if (r.mgDL !in 40..400) return@collect
@@ -69,5 +90,12 @@ object LibreCR {
             }
         }
         initialized = true
+    }
+
+    private fun liveUpdateTicker() = flow {
+        while (true) {
+            emit(Unit)
+            delay(30_000L)
+        }
     }
 }

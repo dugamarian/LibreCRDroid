@@ -61,7 +61,7 @@ fun AodScreen(modifier: Modifier = Modifier) {
 
     fun start() {
         val started = AodGlucoseOverlayService.start(ctx)
-        message = if (started) "AOD pornit. Se afișează pe lock screen/Always-on." else null
+        message = if (started) "AOD pornit. Se afișează doar pe Always-On Display." else null
         error = if (started) null else "Pentru AOD activează serviciul LibreCRDroid din Accesibilitate. Am deschis setările."
     }
 
@@ -111,7 +111,7 @@ fun AodScreen(modifier: Modifier = Modifier) {
         }
 
         SectionCard("Always-On Display") {
-            Text("Suprapunere separată pentru ecranul blocat / AOD.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Suprapunere separată doar pentru Always-On Display.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = ::start) { Text("Pornește AOD") }
                 FilledTonalButton(onClick = ::stop) { Text("Oprește") }

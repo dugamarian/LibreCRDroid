@@ -1,7 +1,9 @@
 package re.abbot.librecr.protocol
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import re.abbot.librecr.protocol.dataplane.ClinicalReadingRecord
 import re.abbot.librecr.protocol.dataplane.DataFrame
@@ -11,6 +13,8 @@ import re.abbot.librecr.protocol.dataplane.DataPlaneDecoder
 import re.abbot.librecr.protocol.dataplane.DataPlaneNotificationAssembler
 import re.abbot.librecr.protocol.dataplane.DataPlanePacketKind
 import re.abbot.librecr.protocol.dataplane.HistoricalReadingPage
+import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
+import re.abbot.librecr.protocol.dataplane.Libre3SensorError
 import re.abbot.librecr.protocol.dataplane.PatchControlCommand
 import re.abbot.librecr.protocol.dataplane.PatchStatus
 import re.abbot.librecr.protocol.dataplane.RealtimeGlucoseReading
@@ -102,6 +106,75 @@ class DataPlaneGoldenTest {
     }
 
     @Test
+    @Suppress("DEPRECATION")
+    fun patchStatusSensorEndStatesAndAttention() {
+        val healthy = patchStatus(errorData = 0, patchState = 4)
+        assertEquals(Libre3SensorError.None, healthy.sensorError)
+        assertEquals(Libre3SensorAttention.None, healthy.sensorAttention)
+        assertTrue(healthy.isPatchStateActive)
+        assertFalse(healthy.shouldNotifyUser)
+
+        val insertionFailure = patchStatus(errorData = 3, patchState = 3)
+        assertEquals(Libre3SensorError.InsertionFailure, insertionFailure.sensorError)
+        assertEquals(Libre3SensorAttention.CheckSensor, insertionFailure.sensorAttention)
+        assertTrue(insertionFailure.isInsertionFailure)
+        assertTrue(insertionFailure.isTerminalFailure)
+
+        val expired = patchStatus(errorData = 5, patchState = 5)
+        assertEquals(Libre3SensorError.Expired, expired.sensorError)
+        assertEquals(Libre3SensorAttention.SensorEnded, expired.sensorAttention)
+        assertTrue(expired.isPatchStateExpiredOrError)
+        assertFalse(expired.isShutdownTerminated)
+        assertFalse(expired.isTerminalFailure)
+
+        for (code in listOf(6, 8)) {
+            val terminated = patchStatus(errorData = code, patchState = code)
+            assertEquals(Libre3SensorError.Terminated, terminated.sensorError)
+            assertTrue(terminated.isShutdownTerminated)
+            assertTrue(terminated.isPatchStateTerminated)
+            assertTrue(terminated.isTerminalFailure)
+        }
+
+        val transmission = patchStatus(errorData = 7, patchState = 7)
+        assertEquals(Libre3SensorError.TransmissionError, transmission.sensorError)
+        assertEquals(Libre3SensorAttention.ReplaceSensor, transmission.sensorAttention)
+        assertTrue(transmission.shouldNotifyReplaceSensor)
+
+        // Unknown errorData surfaces (as Unknown) only when the sensor is NOT active.
+        val unknown = patchStatus(errorData = 42, patchState = 7)
+        assertEquals(Libre3SensorError.Unknown(42), unknown.sensorError)
+        assertEquals(Libre3SensorAttention.Unknown(42), unknown.sensorAttention)
+        assertTrue(unknown.shouldNotifyUser)
+        assertFalse(unknown.shouldNotifyReplaceSensor)
+
+        // An ACTIVE sensor streaming glucose is never flagged, whatever errorData says — patchState
+        // is the source of truth (observed real case: errorData=7, patchState=4, valid values right
+        // after a reconnect). sensorError stays as a diagnostic label; sensorAttention is None.
+        for (code in listOf(7, 8, 42)) {
+            val activeWithError = patchStatus(errorData = code, patchState = 4)
+            assertEquals(Libre3SensorAttention.None, activeWithError.sensorAttention)
+            assertFalse(activeWithError.shouldNotifyUser)
+            assertFalse(activeWithError.shouldNotifyReplaceSensor)
+        }
+    }
+
+    @Test
+    fun patchStatusAttentionFallsBackToPatchState() {
+        assertEquals(
+            Libre3SensorAttention.CheckSensor,
+            patchStatus(errorData = 0, patchState = 3).sensorAttention,
+        )
+        assertEquals(
+            Libre3SensorAttention.SensorEnded,
+            patchStatus(errorData = 0, patchState = 6).sensorAttention,
+        )
+        assertEquals(
+            Libre3SensorAttention.ReplaceSensor,
+            patchStatus(errorData = 0, patchState = 8).sensorAttention,
+        )
+    }
+
+    @Test
     fun historicalParse() {
         for (i in 0 until Golden.arr("historical_parse").length()) {
             val v = Golden.arr("historical_parse").getJSONObject(i)
@@ -142,5 +215,13 @@ class DataPlaneGoldenTest {
             PatchControlCommand.factoryData().plaintext.toHex())
         assertEquals(Golden.arr("patchcontrol").getJSONObject(5).getString("plaintext"),
             PatchControlCommand.shutdownPatch().plaintext.toHex())
+    }
+
+    private fun patchStatus(errorData: Int, patchState: Int): PatchStatus {
+        val plaintext = ByteArray(PatchStatus.PLAINTEXT_SIZE)
+        plaintext[2] = (errorData and 0xff).toByte()
+        plaintext[3] = ((errorData ushr 8) and 0xff).toByte()
+        plaintext[7] = patchState.toByte()
+        return PatchStatus(plaintext)
     }
 }

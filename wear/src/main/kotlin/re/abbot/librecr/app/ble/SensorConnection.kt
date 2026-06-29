@@ -11,13 +11,14 @@ import android.content.Context
 import android.os.Build
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import re.abbot.librecr.app.log.BleLog
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+
+class GattDisconnectedException(val gattStatus: Int) : IllegalStateException("disconnected status=$gattStatus")
 
 /**
  * One connected GATT session against a Libre 3 sensor.
@@ -52,25 +53,27 @@ class SensorConnection(
     fun notifyChannel(uuid: UUID): Channel<ByteArray> =
         notifyChannels.getOrPut(uuid) { Channel(Channel.UNLIMITED) }
 
-    /** Connect, discover services, and enable notifications on all notify chars. */
-    suspend fun connectAndDiscover(connectTimeoutMs: Long, discoverTimeoutMs: Long) {
-        connect(connectTimeoutMs)
-        // Wear OS lets a balanced/low-power link drift to a long interval, which makes the
-        // multi-round-trip Libre 3 handshake prone to a mid-handshake drop (GATT status 19 =
-        // peer terminated) → a missed minute. Requesting a high-priority (short-interval) link
-        // keeps the handshake window tight. Best-effort; the actual change is async.
-        runCatching { gatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
-            .onSuccess { BleLog.log("gatt.connect: requested high connection priority") }
-            .onFailure { BleLog.log("gatt.connect: high priority request failed: ${it.message}") }
+    /**
+     * Connect, discover services, and enable only the security-handshake
+     * notifications. Data-plane notifications are enabled once after Phase 6.
+     */
+    suspend fun connectAndDiscover(connectTimeoutMs: Long, discoverTimeoutMs: Long, autoConnect: Boolean = false) {
+        connect(connectTimeoutMs, autoConnect)
+
+        // NO connection-priority requests for Libre 3. Every preset hurt: HIGH and BALANCED caused
+        // random status=8 link drops, LOW_POWER made the multi-round-trip handshake too slow, and any
+        // mid-session change renegotiated bad params (status=19). The most stable behavior is to leave
+        // the default BLE connection parameters that Android and the sensor negotiate on their own.
         discoverServices(discoverTimeoutMs)
-        subscribeAllNotifyCharacteristics()
+
+        subscribeNotifyCharacteristics(LibreSensorGatt.handshakeNotifying, "handshake")
     }
 
-    private suspend fun connect(timeoutMs: Long) = opMutex.withLock {
+    private suspend fun connect(timeoutMs: Long, autoConnect: Boolean) = opMutex.withLock {
         val def = CompletableDeferred<Unit>()
         pendingConnect = def
-        BleLog.log("gatt.connect device=${device.address} (autoConnect=false)")
-        gatt = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+        BleLog.log("gatt.connect device=${device.address} (autoConnect=$autoConnect)")
+        gatt = device.connectGatt(context, autoConnect, callback, BluetoothDevice.TRANSPORT_LE)
         try {
             withTimeout(timeoutMs) { def.await() }
         } catch (e: Exception) {
@@ -86,8 +89,15 @@ class SensorConnection(
         val def = CompletableDeferred<Unit>()
         pendingServices = def
         BleLog.log("gatt.discoverServices")
+        BleLog.log("$WEAR_BLE_TAG SENSOR_DISCOVER_SERVICES_START")
         g.discoverServices()
-        withTimeout(timeoutMs) { def.await() }
+        try {
+            withTimeout(timeoutMs) { def.await() }
+        } catch (e: Exception) {
+            BleLog.log("$WEAR_BLE_TAG SENSOR_DISCOVER_SERVICES_FAILED reason=${e.message}")
+            throw e
+        }
+        BleLog.log("$WEAR_BLE_TAG SENSOR_DISCOVER_SERVICES_SUCCESS")
         characteristics.clear()
         var serviceCount = 0
         for (svc in listOf(LibreSensorGatt.SERVICE, LibreSensorGatt.SECURITY_SERVICE)) {
@@ -106,12 +116,11 @@ class SensorConnection(
         BleLog.log("gatt.discoverServices: services=$serviceCount characteristics=${characteristics.size}")
     }
 
-    private suspend fun subscribeAllNotifyCharacteristics() {
-        val notifiable = characteristics.values.filter { it.supportsNotifyOrIndicate() }
-        BleLog.log("gatt.notify: subscribing ${notifiable.size} notifiable characteristics after discovery")
-        for (c in notifiable) {
-            runCatching { setNotify(c.uuid, true) }
-                .onFailure { BleLog.log("gatt.notify: subscribe ${short(c.uuid)} failed: ${it.message}") }
+    private suspend fun subscribeNotifyCharacteristics(uuids: List<UUID>, label: String) {
+        BleLog.log("gatt.notify: subscribing ${uuids.size} $label characteristics")
+        for (uuid in uuids) {
+            setNotify(uuid, true)
+            BleLog.log("gatt.notify: subscribed $label ${short(uuid)}")
         }
     }
 
@@ -171,20 +180,25 @@ class SensorConnection(
     }
 
     /**
-     * Post-Phase 6 CCCD off→on re-arm (best effort) on the data-plane notify
-     * characteristics. Without this the link stays open but silent. Mirrors
-     * Swift `refreshDataPlaneNotifications` / `rearmNotifyBestEffort`.
+     * First-time post-Phase 6 enable of the data-plane CCCDs. They are not
+     * subscribed during discovery, so no off→on toggle or settle delay is needed.
+     *
+     * Android GATT operations must remain serialized; unlike CoreBluetooth, the
+     * descriptor writes cannot safely be issued concurrently.
      */
-    suspend fun refreshDataPlaneNotifications(settleDelayMs: Long = 90) {
-        BleLog.log("gatt.notify: re-arming data-plane CCCDs after handshake")
-        for (uuid in LibreSensorGatt.dataPlaneNotifying) {
-            if (!characteristics.containsKey(uuid)) continue
-            runCatching {
-                setNotify(uuid, false); delay(settleDelayMs)
-                setNotify(uuid, true); delay(settleDelayMs)
-                BleLog.log("gatt.notify: re-armed CCCD ${short(uuid)}")
-            }.onFailure { BleLog.log("gatt.notify: re-arm ${short(uuid)} failed: ${it.message}") }
+    suspend fun refreshDataPlaneNotifications() {
+        val startedAtMs = System.currentTimeMillis()
+        BleLog.log("$WEAR_BLE_TAG CCCD_REARM_START count=${LibreSensorGatt.dataPlaneNotifying.size}")
+        try {
+            for (uuid in LibreSensorGatt.dataPlaneNotifying) {
+                setNotify(uuid, true)
+                BleLog.log("gatt.notify: enabled data-plane CCCD ${short(uuid)}")
+            }
+        } catch (e: Exception) {
+            BleLog.log("$WEAR_BLE_TAG CCCD_REARM_FAILED reason=${e.message}")
+            throw e
         }
+        BleLog.log("$WEAR_BLE_TAG CCCD_REARM_SUCCESS durationMs=${System.currentTimeMillis() - startedAtMs}")
     }
 
     fun disconnect() {
@@ -196,6 +210,7 @@ class SensorConnection(
         BleLog.log("gatt.close")
         runCatching { gatt?.close() }
         gatt = null
+        characteristics.clear()
         failAllPending(IllegalStateException("connection closed"))
         notifyChannels.values.forEach { it.close() }
         notifyChannels.clear()
@@ -213,10 +228,13 @@ class SensorConnection(
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             BleLog.log("onConnectionStateChange status=$status newState=$newState")
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                BleLog.log("$WEAR_BLE_TAG SENSOR_CONNECTED status=$status")
                 pendingConnect?.complete(Unit); pendingConnect = null
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                failAllPending(IllegalStateException("disconnected status=$status"))
+                BleLog.log("$WEAR_BLE_TAG SENSOR_DISCONNECTED status=$status")
+                failAllPending(GattDisconnectedException(status))
                 val cb = onDisconnected
+                refreshDeviceCache(g)
                 runCatching { g.close() }
                 gatt = null
                 cb?.invoke(status)
@@ -269,6 +287,13 @@ class SensorConnection(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return
             deliverNotify(c.uuid, c.value ?: ByteArray(0))
         }
+
+        // Available on API 21+ but hidden in some SDK levels. It is called by the framework.
+        fun onConnectionUpdated(g: BluetoothGatt, interval: Int, latency: Int, timeout: Int, status: Int) {
+            val intervalMs = (interval * 1.25).toInt()
+            val timeoutMs = timeout * 10
+            BleLog.log("gatt.connectionUpdated interval=$interval intervalMs=$intervalMs latency=$latency timeout=$timeout timeoutMs=$timeoutMs status=$status")
+        }
     }
 
     private fun deliverNotify(uuid: UUID, value: ByteArray) {
@@ -286,5 +311,21 @@ class SensorConnection(
 
     companion object {
         const val OP_TIMEOUT_MS = 5_000L
+
+        // No connection-priority manipulation for Libre 3: every preset hurt (HIGH/BALANCED →
+        // random status=8, LOW_POWER → handshake too slow, any mid-session change → status=19).
+        // We rely on the default Android/sensor-negotiated BLE parameters.
+        private const val WEAR_BLE_TAG = "[WEAR-BLE]"
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun refreshDeviceCache(gatt: BluetoothGatt?) {
+        try {
+            val localMethod = gatt?.javaClass?.getMethod("refresh")
+            val result = localMethod?.invoke(gatt) as? Boolean ?: false
+            BleLog.log("gatt.refresh result=$result")
+        } catch (e: Exception) {
+            BleLog.log("gatt.refresh failed: ${e.message}")
+        }
     }
 }

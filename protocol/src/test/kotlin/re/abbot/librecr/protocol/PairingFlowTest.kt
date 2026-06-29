@@ -111,18 +111,18 @@ class PairingFlowTest {
     }
 
     @Test
-    fun capturedUserPhoneCertIsBundled() {
-        val cert = PhoneCert.bundledCapturedUser()
+    fun liveFirstPairPhoneCertIsBundled() {
+        val cert = PhoneCert.bundled162b()
         assertEquals(162, cert.raw.size)
         assertArrayEquals(byteArrayOf(0x03, 0x03), cert.raw.copyOfRange(0, 2))
         assertEquals(0x04, cert.staticPub[0].toInt())
     }
 
     @Test
-    fun capturedUserPhoneCertUsesIndex1StaticScalarOverride() {
-        val captured = PhoneCert.bundledCapturedUser()
-        assertNotNull(captured.phase5StaticScalarWindowOverride)
-        val override = requireNotNull(captured.phase5StaticScalarWindowOverride)
+    fun liveFirstPairPhoneCertUsesIndex1StaticScalarOverride() {
+        val cert = PhoneCert.bundled162b()
+        assertNotNull(cert.phase5StaticScalarWindowOverride)
+        val override = requireNotNull(cert.phase5StaticScalarWindowOverride)
         assertEquals(70, override.size)
         assertEquals(
             "978d11ed646ee3559336d5feba587ce984123198cd9e880d34bad0fac8a997bf",

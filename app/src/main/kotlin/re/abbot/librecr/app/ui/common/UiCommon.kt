@@ -87,7 +87,12 @@ fun SettingsSlider(label: String, value: Float, range: ClosedFloatingPointRange<
  * Draws nothing for an unknown trend (the box still reserves [size] to keep layout stable).
  */
 @Composable
-fun TrendArrow(trend: String?, color: Color, size: Dp, modifier: Modifier = Modifier) {
+fun TrendArrow(
+    trend: String?,
+    color: Color,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
     Canvas(modifier.size(size)) {
         val rotation = TrendArrowShape.rotationDegrees(trend) ?: return@Canvas
         val side = this.size.minDimension
@@ -111,7 +116,7 @@ fun TrendArrow(trend: String?, color: Color, size: Dp, modifier: Modifier = Modi
 
 @Composable
 fun trendLabel(trend: String?): String = stringResource(
-    when (trend) {
+    when (TrendArrowShape.resolvedTrend(trend)) {
         "FALLING_QUICKLY" -> R.string.trend_falling_quickly
         "FALLING" -> R.string.trend_falling
         "STABLE" -> R.string.trend_stable

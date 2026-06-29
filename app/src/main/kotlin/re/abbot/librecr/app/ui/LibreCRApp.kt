@@ -30,7 +30,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -50,6 +52,7 @@ import re.abbot.librecr.app.ui.settings.AodScreen
 import re.abbot.librecr.app.ui.settings.CloudUploadScreen
 import re.abbot.librecr.app.ui.settings.FloatingScreen
 import re.abbot.librecr.app.ui.settings.LanguageScreen
+import re.abbot.librecr.app.ui.settings.LiveUpdatesScreen
 import re.abbot.librecr.app.ui.settings.LogScreen
 import re.abbot.librecr.app.ui.settings.SettingsScreen
 import re.abbot.librecr.app.ui.settings.UnitsScreen
@@ -74,6 +77,7 @@ fun LibreCRApp(
 ) {
     val nav = rememberNavController()
     val settings by LibreCR.settings.settingsFlow.collectAsStateWithLifecycle(initialValue = AppSettings())
+    val agreementScope = rememberCoroutineScope()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val topLevel = route == null || TABS.any { it.route == route }
@@ -83,7 +87,11 @@ fun LibreCRApp(
     // (the nightstand case). A Compose conditional here could only work while this screen is visible.
     CompositionLocalProvider(LocalAppSettings provides settings) {
         Box(Modifier.fillMaxSize()) {
-            run {
+            if (!settings.agreementAccepted) {
+                AgreementScreen(
+                    onAccept = { agreementScope.launch { LibreCR.settings.setAgreementAccepted(true) } },
+                )
+            } else run {
                 Scaffold(
                     topBar = {
                         TopAppBar(
@@ -105,6 +113,7 @@ fun LibreCRApp(
                         composable(Routes.SETTINGS) { SettingsScreen(onNavigate = { nav.navigate(it) }) }
                         composable(Routes.SENSOR) { SensorScreen(nfcReader) }
                         composable(Routes.ALARMS) { AlarmsScreen() }
+                        composable(Routes.LIVE_UPDATES) { LiveUpdatesScreen() }
                         composable(Routes.CLOUD) { CloudUploadScreen() }
                         composable(Routes.FLOATING) { FloatingScreen() }
                         composable(Routes.AOD) { AodScreen() }
@@ -147,6 +156,7 @@ private fun routeTitle(route: String?): String = stringResource(
         Routes.SETTINGS -> R.string.nav_settings
         Routes.SENSOR -> R.string.title_sensor
         Routes.ALARMS -> R.string.title_alarms
+        Routes.LIVE_UPDATES -> R.string.title_live_updates
         Routes.CLOUD -> R.string.title_cloud
         Routes.FLOATING -> R.string.title_floating
         Routes.AOD -> R.string.title_aod

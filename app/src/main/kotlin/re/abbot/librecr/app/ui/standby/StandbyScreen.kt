@@ -62,6 +62,7 @@ import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.GlucoseUi
 import re.abbot.librecr.app.data.AppSettings
 import re.abbot.librecr.app.data.SensorStateStore
+import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.app.ui.common.TrendArrow
 import re.abbot.librecr.app.ui.common.readingAgeText
 import re.abbot.librecr.app.ui.common.trendLabel
@@ -104,9 +105,11 @@ fun StandbyScreen(
     val local by LibreCR.manager.glucose.collectAsState()
     val remote by LibreCR.store.lastGlucoseFlow.collectAsState(initial = null)
     val history by LibreCR.store.glucoseHistoryFlow.collectAsState(initial = emptyList())
-    val glucose = local?.takeIf { it.usable && it.mgDL != null } ?: remote?.toGlucoseUi()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var burnInIndex by remember { mutableIntStateOf(0) }
+    val glucose = local
+        ?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs, now) }
+        ?: remote?.takeIf { isFreshGlucose(it.receivedAtMs, now) }?.toGlucoseUi()
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -217,7 +220,7 @@ private fun StandbyGlucosePanel(
     labelSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
 ) {
-    val value = glucose?.mgDL?.let { settings.unit.format(it) } ?: "--"
+    val value = glucose?.mgDL?.let { settings.unit.format(it) } ?: "SE"
     // Trend arrow sits beside the value and is much larger than before.
     val arrowSize = (valueSize.value * 0.82f).dp
 
@@ -332,6 +335,7 @@ private fun SensorStateStore.LastGlucose.toGlucoseUi(): GlucoseUi =
         lifeCount = lifeCount,
         usable = true,
         receivedAtMs = receivedAtMs,
+        deltaMgDlPerMin = deltaMgDlPerMin,
     )
 
 private fun Context.currentChargingState(): Boolean =

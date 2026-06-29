@@ -334,7 +334,11 @@ class PairingFlow(
     companion object {
         const val DEFAULT_COMMAND_TIMEOUT_MS = 2_000L
         const val DEFAULT_NOTIFY_TIMEOUT_MS = 12_000L
-        const val DEFAULT_WRITE_TIMEOUT_MS = 2_000L
+        // Covers a full multi-chunk fragmented write (e.g. the 162B phone cert = 9 chunks). On a link
+        // with non-zero slave latency (BALANCED/LOW_POWER negotiate latency≈5), each write-with-response
+        // chunk waits ~240ms, so the cert needs ~2.2s — the old 2s ceiling aborted it mid-write even
+        // though the sensor was still patiently connected. Generous; only bounds failure detection.
+        const val DEFAULT_WRITE_TIMEOUT_MS = 8_000L
 
         private fun padTo(data: ByteArray, length: Int): ByteArray {
             if (data.size >= length) return data

@@ -1,5 +1,7 @@
 package re.abbot.librecr.app.ble
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.PowerManager
@@ -22,6 +24,7 @@ import re.abbot.librecr.app.data.ImportedSession
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.log.GlucoseLatencyTracer
+import re.abbot.librecr.app.alarm.SensorAttentionNotifier
 import re.abbot.librecr.app.wear.WearDataSync
 import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
 import re.abbot.librecr.protocol.dataplane.DataFrame
@@ -32,8 +35,12 @@ import re.abbot.librecr.protocol.dataplane.DataPlaneDecoder
 import re.abbot.librecr.protocol.dataplane.DataPlaneNotificationAssembler
 import re.abbot.librecr.protocol.dataplane.DataPlanePacketKind
 import re.abbot.librecr.protocol.dataplane.GlucoseTimeline
+import re.abbot.librecr.protocol.dataplane.Libre3SensorCondition
 import re.abbot.librecr.protocol.dataplane.PatchControlCommand
+import re.abbot.librecr.protocol.dataplane.RealtimeGlucoseReading
+import re.abbot.librecr.protocol.crypto.AesCcmException
 import re.abbot.librecr.protocol.pairing.PairingFlow
+import re.abbot.librecr.protocol.pairing.PairingFlowException
 import re.abbot.librecr.protocol.pairing.PhoneCert
 import re.abbot.librecr.protocol.pairing.SessionKey
 import re.abbot.librecr.protocol.toHex
@@ -50,6 +57,8 @@ data class GlucoseUi(
     val usable: Boolean,
     val receivedAtMs: Long,
     val deltaMgDlPerMin: Double? = null,
+    val readingIssue: String? = null,
+    val readingIssueDetail: String? = null,
 )
 
 private data class BackfillRequest(
@@ -70,7 +79,7 @@ fun GlucoseUi.toLastGlucose(): SensorStateStore.LastGlucose? {
 
 /**
  * Owns the full connection lifecycle: scan → connect → security handshake
- * (fresh command-gated local derivation every attempt) → CCCD re-arm →
+ * (fresh command-gated local derivation every attempt) → post-handshake CCCD enable →
  * per-minute data loop, with self-healing reconnect and a no-data watchdog.
  * This is where "connects stably + delivers glucose every minute" lives.
  */
@@ -91,8 +100,24 @@ class SensorConnectionManager(
     private var loopJob: Job? = null
     @Volatile private var activeConnection: SensorConnection? = null
     @Volatile private var cachedPhase5RawKey: ByteArray? = null
+    /** Consecutive non-mismatch cached-reconnect failures; a correct key survives transient blips. */
+    @Volatile private var cachedReconnectFailures: Int = 0
     @Volatile private var lastDecodedLifeCount: Int? = null
     @Volatile private var lastSentReading: SensorStateStore.LastGlucose? = null
+    /** Last (errorData, patchState) pair we persisted/relayed, so we act only on real transitions. */
+    @Volatile private var lastSensorStatus: Pair<Int, Int>? = null
+
+    // --- Centralized sensor reconnect (the ONLY path that re-establishes the sensor BLE link). Driven
+    // exclusively by validated sensor-side signals — GATT disconnect, no-data watchdog, fragment-assembly
+    // timeout. The phone / Data Layer NEVER triggers it. See requestSensorReconnect(). ---
+    @Volatile private var sensorOnline = false
+    @Volatile private var reconnectSignal: CompletableDeferred<Unit>? = null
+    @Volatile private var pendingReconnectReason: String = "initial"
+    @Volatile private var lastDisconnectStatus: Int? = null
+    @Volatile private var reconnectAttempt = 0
+    @Volatile private var reconnectStartedAtMs = 0L
+    @Volatile private var awaitingFirstReadingAfterReconnect = false
+    @Volatile private var reconnectLastGoodLifeCount: Int? = null
 
     // DataStore persistence runs OFF the decode→ui→send path: a single conflated consumer drains
     // only the latest reading, so a slow write (Wear doze can stall flash I/O for tens of seconds)
@@ -135,6 +160,12 @@ class SensorConnectionManager(
             return
         }
         loopJob?.cancel()
+        cachedReconnectFailures = 0
+        lastSensorStatus = null
+        reconnectAttempt = 0
+        sensorOnline = false
+        reconnectSignal = null
+        awaitingFirstReadingAfterReconnect = false
         cachedPhase5RawKey = session.phase5RawKey?.copyOf()
         val localProvisioning = session.withoutTransientCrypto()
         BleLog.log(
@@ -156,10 +187,73 @@ class SensorConnectionManager(
         BleLog.log("manager: stop requested; active GATT closed")
     }
 
+    /**
+     * The single, centralized sensor-reconnect funnel. Every validated sensor-side disconnect signal
+     * routes here; nothing else — and never the phone / Data Layer — may restart the sensor link. Safe
+     * to call from any thread (GATT callback, watchdog, collector). It does NOT touch the GATT itself:
+     * it only records the cause and signals the running loop, which performs the close + scan + reconnect.
+     */
+    private fun requestSensorReconnect(reason: String, status: Int? = null) {
+        reconLog("SENSOR_RECONNECT_REQUEST reason=$reason status=${status ?: -1} attempt=$reconnectAttempt")
+        val signal = reconnectSignal
+        if (!sensorOnline || signal == null || signal.isCompleted) {
+            reconLog("SENSOR_RECONNECT_SUPPRESSED_ALREADY_RUNNING reason=$reason")
+            return
+        }
+        sensorOnline = false
+        pendingReconnectReason = reason
+        lastDisconnectStatus = status
+        reconnectLastGoodLifeCount = lastSentReading?.lifeCount ?: lastDecodedLifeCount
+        reconnectStartedAtMs = System.currentTimeMillis()
+        awaitingFirstReadingAfterReconnect = true
+        val age = if (lastGlucoseAt.get() > 0) System.currentTimeMillis() - lastGlucoseAt.get() else -1
+
+        reconLog(
+            "SENSOR_DISCONNECTED status=${status ?: -1} lastPacketAgeMs=$age attempt=$reconnectAttempt " +
+                "reason=$reason lastGoodLifeCount=${reconnectLastGoodLifeCount ?: -1}",
+        )
+        WearDataSync.sendLog(context)
+        signal.complete(Unit)
+    }
+
+    private fun reconLog(message: String) = BleLog.log("$WEAR_BLE_TAG $message")
+
+    /**
+     * Backoff keyed to the attempt number (1-based): fast first retries, then a bounded climb. Capped at
+     * [RECONNECT_BACKOFF_MAX_MS] — never the old 60s. The sensor re-advertises within seconds of a real
+     * drop, so attempt 1 fires almost immediately.
+     */
+    private fun reconnectDelayMs(attempt: Int): Long {
+        val idx = (attempt - 1).coerceIn(0, RECONNECT_BACKOFF_MS.size - 1)
+        return RECONNECT_BACKOFF_MS[idx].coerceAtMost(RECONNECT_BACKOFF_MAX_MS)
+    }
+
+    /** Brief wake lock around the critical connect/discover burst so Wear doze can't suspend the CPU
+     *  mid-reconnect. Auto-released after [RECONNECT_WAKE_LOCK_TIMEOUT_MS]; released in finally; never held long. */
+    private suspend fun <T> withReconnectWakeLock(block: suspend () -> T): T {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleReconnect")
+            ?: return block()
+        wakeLock.setReferenceCounted(false)
+        wakeLock.acquire(RECONNECT_WAKE_LOCK_TIMEOUT_MS)
+        return try {
+            block()
+        } finally {
+            if (wakeLock.isHeld) wakeLock.release()
+        }
+    }
+
     fun acceptRemoteGlucose(reading: SensorStateStore.LastGlucose) {
         val current = _glucose.value
         if (current != null && current.lifeCount > reading.lifeCount) {
             BleLog.log("WATCH_STATE_UPDATED skipped stale remote lc=${reading.lifeCount} current=${current.lifeCount}")
+            return
+        }
+        if (current != null && current.lifeCount == reading.lifeCount) {
+            BleLog.log(
+                "WATCH_STATE_UPDATED skipped duplicate remote lc=${reading.lifeCount} " +
+                    "currentTrend=${current.trend} incomingTrend=${reading.trend}",
+            )
             return
         }
         _glucose.value = GlucoseUi(
@@ -175,6 +269,33 @@ class SensorConnectionManager(
         BleLog.log("WATCH_STATE_UPDATED lc=${reading.lifeCount} source=remote")
     }
 
+    /** Publish a non-numeric realtime sensor reading relayed by the phone. */
+    fun acceptRemoteGlucoseUnavailable(event: WearDataSync.GlucoseUnavailable) {
+        val current = _glucose.value
+        if (current != null && current.lifeCount > event.lifeCount) {
+            BleLog.log("WATCH_STATE_UPDATED skipped stale remote unavailable lc=${event.lifeCount} current=${current.lifeCount}")
+            return
+        }
+        if (current != null && current.lifeCount == event.lifeCount && !current.usable) {
+            BleLog.log("WATCH_STATE_UPDATED skipped duplicate remote unavailable lc=${event.lifeCount}")
+            return
+        }
+        _glucose.value = GlucoseUi(
+            mgDL = null,
+            trend = event.trend,
+            lifeCount = event.lifeCount,
+            usable = false,
+            receivedAtMs = event.receivedAtMs,
+            readingIssue = event.reason,
+            readingIssueDetail = event.detail,
+        )
+        LibreComplicationUpdater.requestAll(context, event.lifeCount)
+        BleLog.log(
+            "WATCH_STATE_UPDATED lc=${event.lifeCount} source=remote usable=false " +
+                "issue=${event.reason} ${event.detail}",
+        )
+    }
+
     suspend fun stopAndJoin(timeoutMs: Long = STOP_JOIN_TIMEOUT_MS): Boolean {
         val job = loopJob
         stop()
@@ -188,7 +309,6 @@ class SensorConnectionManager(
     private suspend fun runLoop(session: ImportedSession) {
         val scanner = SensorScanner(adapter)
         var currentSession = session
-        var backoffMs = 2_000L
         loadCachedPhase5RawKeyIfNeeded()
 
         while (kotlin.coroutines.coroutineContext.isActive) {
@@ -199,7 +319,7 @@ class SensorConnectionManager(
                     _statusLine.value = "Bluetooth oprit; aștept repornirea"
                     BleLog.log("manager: Bluetooth disabled; waiting before scan")
                     waitForBluetoothEnabled()
-                    backoffMs = 2_000L
+                    reconnectAttempt = 0
                     continue
                 }
 
@@ -215,25 +335,58 @@ class SensorConnectionManager(
                 val firstPairEphemeral = if (canResume) null else prepareFirstPairEphemeral()
                 kotlin.coroutines.coroutineContext.ensureActive()
 
-                _state.value = ConnectionState.SCANNING
-                _statusLine.value = "scanning for ${currentSession.bleAddress}"
-                val scan = scanner.findSensor(currentSession.bleAddress, currentSession.bleDeviceName, timeoutMs = 60_000)
-                    ?: throw IllegalStateException("sensor not found")
-                currentSession = rememberObservedIdentity(currentSession, scan)
-                val device = scan.device
-
-                _state.value = ConnectionState.CONNECTING
-                _statusLine.value = "connecting ${device.address}"
+                // Reconnect strategy for a KNOWN sensor address: hand off to the BLE controller with
+                // connectGatt(autoConnect=true) instead of an app-level active scan. Repeated active
+                // scans hit Android's 5-scans-per-30s throttle — after that startScan is silently
+                // ignored (no results, no error), which is exactly why our scan passes were running
+                // far past their timeouts and never finding the sensor. The controller-level
+                // auto-connect is NOT throttled, survives Doze/CPU-suspend on the watch, and latches
+                // onto the sensor the instant it re-advertises (the Android analogue of CoreBluetooth's
+                // passive connect on iOS). Active scanning is kept only as a fallback when we have no
+                // confirmed BLE address yet.
+                val knownAddress = currentSession.bleAddress
+                    .takeIf { BluetoothAdapter.checkBluetoothAddress(it.uppercase()) }
+                    ?.uppercase()
+                val device: BluetoothDevice
+                val autoConnect: Boolean
+                if (knownAddress != null) {
+                    device = adapter.getRemoteDevice(knownAddress)
+                    autoConnect = reconnectAttempt >= 3
+                    _state.value = ConnectionState.CONNECTING
+                    _statusLine.value = "connecting $knownAddress"
+                    reconLog("SENSOR_DIRECT_CONNECT target=$knownAddress autoConnect=$autoConnect attempt=$reconnectAttempt")
+                } else {
+                    _state.value = ConnectionState.SCANNING
+                    _statusLine.value = "scanning for ${currentSession.bleAddress}"
+                    val scanTimeoutMs = if (reconnectAttempt == 0) COLD_SCAN_TIMEOUT_MS else RECONNECT_SCAN_TIMEOUT_MS
+                    reconLog("SENSOR_SCAN_START target=${currentSession.bleAddress} timeoutMs=$scanTimeoutMs attempt=$reconnectAttempt")
+                    val scan = scanner.findSensor(currentSession.bleAddress, currentSession.bleDeviceName, timeoutMs = scanTimeoutMs)
+                    if (scan == null) {
+                        reconLog("SENSOR_SCAN_TIMEOUT target=${currentSession.bleAddress}")
+                        throw IllegalStateException("sensor not found")
+                    }
+                    reconLog("SENSOR_SCAN_FOUND device=${scan.device.address}")
+                    currentSession = rememberObservedIdentity(currentSession, scan)
+                    device = scan.device
+                    autoConnect = false
+                    _state.value = ConnectionState.CONNECTING
+                    _statusLine.value = "connecting ${device.address}"
+                }
+                reconLog("SENSOR_CONNECT_START device=${device.address} autoConnect=$autoConnect")
                 val c = SensorConnection(context, device)
                 conn = c
                 activeConnection = c
                 val disconnected = CompletableDeferred<Unit>()
-                c.onDisconnected = { status ->
-                    BleLog.log("manager: disconnected status=$status")
-                    if (!disconnected.isCompleted) disconnected.complete(Unit)
+                reconnectSignal = disconnected
+                // The GATT callback fires on a real sensor-side link drop — a validated reconnect trigger.
+                c.onDisconnected = { status -> requestSensorReconnect("gatt_disconnect", status) }
+                // Short wake lock only around the critical connect/discover burst (auto-released).
+                // With autoConnect=true the controller waits/connects in the background, so the lock
+                // expiring before the link comes up is fine — the GATT callback wakes us on connect.
+                withReconnectWakeLock {
+                    // Libre 3 accepts connections on ~minute-spaced windows → long connect ceiling.
+                    c.connectAndDiscover(connectTimeoutMs = 120_000, discoverTimeoutMs = 45_000, autoConnect = autoConnect)
                 }
-                // Libre 3 accepts connections on ~minute-spaced windows → long connect timeout.
-                c.connectAndDiscover(connectTimeoutMs = 120_000, discoverTimeoutMs = 45_000)
 
                 _state.value = ConnectionState.HANDSHAKING
                 _statusLine.value = if (cachedPhase5RawKey != null) "handshake: cached reconnect" else "handshake: full local derivation"
@@ -248,10 +401,12 @@ class SensorConnectionManager(
                 val crypto = DataPlaneCrypto(material.kEnc, material.ivEnc)
                 val decoder = DataPlaneDecoder(crypto)
                 val patchControl = PatchControlBackfillWriter(c, crypto, POST_AUTH_PATCH_CONTROL_TIMEOUT_MS)
+                
                 _state.value = ConnectionState.STREAMING
                 _statusLine.value = "streaming"
                 lastGlucoseAt.set(System.currentTimeMillis())
-                backoffMs = 2_000L
+                sensorOnline = true
+                reconLog("SENSOR_RECONNECTED device=${device.address} attempt=$reconnectAttempt resume=${cachedPhase5RawKey != null}")
 
                 coroutineScope {
                     val backfillRequests = Channel<BackfillRequest>(Channel.UNLIMITED)
@@ -267,11 +422,8 @@ class SensorConnectionManager(
                         launch { collectChannel(c, decoder, LibreSensorGatt.CLINICAL_DATA, DataPlaneChannel.CLINICAL_DATA) },
                     )
                     launch { enqueueImmediateReconnectBackfill(backfillRequests) }
-                    val watchdog = launch {
-                        watchdog(c) {
-                            if (!disconnected.isCompleted) disconnected.complete(Unit)
-                        }
-                    }
+                    val watchdog = launch { watchdog(c) }
+
                     disconnected.await()
                     collectors.forEach { it.cancel() }
                     backfill.cancel()
@@ -282,21 +434,28 @@ class SensorConnectionManager(
                 conn?.disconnect(); conn?.close()
                 throw e
             } catch (e: Exception) {
-                BleLog.log("manager: attempt failed: ${e.message}")
+                reconLog("SENSOR_RECONNECT_FAILED reason=${e.message}")
                 _statusLine.value = "error: ${e.message}"
             } finally {
-                conn?.close()
+                sensorOnline = false
+                reconnectSignal = null
+                if (conn != null) {
+                    conn.close()
+                    reconLog("SENSOR_GATT_CLOSED reason=$pendingReconnectReason")
+                }
                 if (activeConnection === conn) activeConnection = null
             }
 
+            reconnectAttempt += 1
+            val delayMs = reconnectDelayMs(reconnectAttempt)
             _state.value = ConnectionState.RECONNECTING
-            _statusLine.value = "reconnecting in ${backoffMs / 1000}s"
-            BleLog.log(
-                "manager: reconnect scheduled in ${backoffMs}ms; next attempt will redo scan/connect and " +
-                    (if (cachedPhase5RawKey != null) "try cached reconnect" else "run full handshake")
+            _statusLine.value = "reconnecting in ${delayMs / 1000}s"
+            reconLog(
+                "SENSOR_RECONNECT_DELAY attempt=$reconnectAttempt ms=$delayMs reason=$pendingReconnectReason " +
+                    "status=${lastDisconnectStatus ?: -1} resume=${cachedPhase5RawKey != null}"
             )
-            delay(backoffMs)
-            backoffMs = minOf(backoffMs * 2, 30_000L)
+            delay(delayMs)
+            reconLog("SENSOR_BACKOFF_NEXT delayMs=${reconnectDelayMs(reconnectAttempt + 1)}")
         }
     }
 
@@ -332,7 +491,7 @@ class SensorConnectionManager(
         firstPairEphemeral: SessionKey.FirstPairNativeEphemeral?,
     ): AuthorizationOutcome {
         val transport = AndroidGattTransport(conn)
-        val phoneCert = PhoneCert.bundledCapturedUser()
+        val phoneCert = PhoneCert.bundled162b()
         BleLog.log("manager: phone cert prefix=${phoneCert.raw.copyOfRange(0, 4).toHex()}")
         val flow = PairingFlow(transport, phoneCert = phoneCert, logger = { BleLog.log(it) })
         val resumeKey = cachedPhase5RawKey
@@ -340,12 +499,25 @@ class SensorConnectionManager(
             BleLog.log("manager: cached reconnect authorization (StartAuthorization only)")
             try {
                 val result = flow.runCachedReconnectHandshake(session.blePin, resumeKey)
+                cachedReconnectFailures = 0
                 rememberPhase5RawKey(result.phase5RawKey)
                 return AuthorizationOutcome(result, "cached reconnect handshake")
             } catch (e: Exception) {
-                forgetPhase5RawKey()
-                BleLog.log("manager: cached reconnect failed (${e.message}); next attempt will use full local handshake")
-                throw IllegalStateException("cached reconnect failed; retry full handshake on next attempt", e)
+                // Discard the cached key ONLY when it is *provably* wrong (Phase 6 CCM/echo failure).
+                // Discarding it forces a full first-pair handshake, which an already-provisioned Libre 3
+                // can refuse to honor without a fresh NFC switch-receiver — i.e. an over-eager discard can
+                // strand the session ("sensor stopped, fixed only by New Sensor"). So a transient drop
+                // (status=19/8), a timeout, or a failure count must NEVER throw the key away; keep it and
+                // retry the cached path. Only a real key mismatch (sensor re-provisioned elsewhere) drops it.
+                cachedReconnectFailures += 1
+                if (isKeyMismatch(e)) {
+                    forgetPhase5RawKey()
+                    cachedReconnectFailures = 0
+                    BleLog.log("manager: cached reconnect failed (${e.message}); cached key DISCARDED (provable key mismatch); next attempt full handshake")
+                } else {
+                    BleLog.log("manager: cached reconnect failed (${e.message}); cached key KEPT (transient drop/timeout #$cachedReconnectFailures — status=19/8 & timeouts never discard the key)")
+                }
+                throw IllegalStateException("cached reconnect failed; retry on next attempt", e)
             }
         }
 
@@ -382,6 +554,25 @@ class SensorConnectionManager(
             .onFailure { BleLog.log("manager: cached Phase 5 resume key clear failed: ${it.message}") }
     }
 
+    /**
+     * True only when the cached key is *provably* wrong: a Phase 6 CCM MAC / R1-R2 echo failure
+     * (AesCcmException or Phase6VerificationFailed) during the handshake — that only happens when the
+     * derived session material can't validate the sensor's Phase 6, i.e. the key is stale.
+     *
+     * Deliberately does NOT include GATT status=19 (peer-terminated). status=19 is a transient link
+     * drop (RF, Wi-Fi/BT coexistence, the sensor closing a slow handshake) — NOT proof of a bad key.
+     * Treating it as a mismatch discarded a perfectly good key and stranded the session until a manual
+     * NFC re-provision, which is exactly the failure being fixed here.
+     */
+    private fun isKeyMismatch(error: Throwable): Boolean {
+        var t: Throwable? = error
+        while (t != null) {
+            if (t is AesCcmException || t is PairingFlowException.Phase6VerificationFailed) return true
+            t = t.cause
+        }
+        return false
+    }
+
     private suspend fun <T> withHandshakeWakeLock(block: suspend () -> T): T {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleHandshake")
@@ -406,7 +597,7 @@ class SensorConnectionManager(
         val observedName = scan.advertisedName?.takeIf { it.isNotBlank() } ?: return session
         if (normalizeIdentity(session.bleDeviceName) == normalizeIdentity(observedName)) return session
         val updated = session.copy(bleDeviceName = observedName)
-        store.saveSession(updated)
+        store.saveSession(updated, preserveCachedKeyWhenKeyless = true)
         BleLog.log("manager: cached permanent BLE device name=$observedName for ${session.bleAddress}")
         return updated
     }
@@ -425,7 +616,18 @@ class SensorConnectionManager(
         // reading is a 15B prefix + suffix → two 177a notifies; we time both and the decode.
         var pendingFirstNotifyTs = 0L
         while (true) {
-            val frag = channel.receive()
+            // A glucose reading is prefix + suffix. Once the prefix is buffered, the suffix should follow
+            // within ~1s; if it never does, the sensor channel is half-stuck → a validated reconnect trigger.
+            val frag = if (pendingFirstNotifyTs > 0L) {
+                withTimeoutOrNull(FRAGMENT_ASSEMBLY_TIMEOUT_MS) { channel.receive() } ?: run {
+                    reconLog("SENSOR_FRAGMENT_TIMEOUT channel=glucose awaitedMs=$FRAGMENT_ASSEMBLY_TIMEOUT_MS (prefix without suffix)")
+                    conn.disconnect()
+                    requestSensorReconnect("stale_fragment_timeout")
+                    return
+                }
+            } else {
+                channel.receive()
+            }
             val notifyAtMs = System.currentTimeMillis()
             val result = assembler.feedDetailed(frag, DataPlaneChannel.GLUCOSE_DATA)
             result.flushedOrphanAgeMs?.let { age ->
@@ -473,8 +675,32 @@ class SensorConnectionManager(
                             "interFragment=${secondNotifyTs - firstNotifyTs}ms",
                     )
                     lastGlucoseAt.set(decodedTs)
+                    // No connection-priority manipulation: the link keeps the default Android/sensor-
+                    // negotiated parameters for the whole session (HIGH/BALANCED → status=8, LOW_POWER →
+                    // slow handshake, any mid-session change → status=19).
+                    // First notify after a reconnect: close out the reconnect (success + gap diagnostics)
+                    // and reset the backoff so the next drop starts fresh from the short pause.
+                    if (awaitingFirstReadingAfterReconnect) {
+                        awaitingFirstReadingAfterReconnect = false
+                        reconLog("SENSOR_FIRST_NOTIFY_AFTER_RECONNECT lifeCount=${r.lifeCount}")
+                        reconLog("SENSOR_RECONNECT_SUCCESS durationMs=${decodedTs - reconnectStartedAtMs} attempt=$reconnectAttempt")
+                        val lastGood = reconnectLastGoodLifeCount
+                        if (lastGood != null && r.lifeCount > lastGood + 1) {
+                            reconLog(
+                                "SENSOR_LIFECOUNT_GAP_AFTER_RECONNECT lastGood=$lastGood now=${r.lifeCount} " +
+                                    "missing=${r.lifeCount - lastGood - 1}",
+                            )
+                        }
+                    }
+                    // Backoff resets only on a real reading from the sensor — not merely on GATT connect.
+                    if (reconnectAttempt != 0) {
+                        reconLog("SENSOR_BACKOFF_RESET reason=first_valid_reading")
+                        reconnectAttempt = 0
+                    }
                     val mg = r.currentGlucoseMgDL
                     val usable = r.isCurrentGlucoseUsable
+                    val issue = glucoseReadingIssue(r)
+                    val issueDetail = glucoseReadingIssueDetail(r)
                     // Delta from the previous in-memory reading — never re-reads DataStore.
                     val delta = if (usable && mg != null) deltaPerMin(lastSentReading, mg, decodedTs) else null
                     // 1) In-memory StateFlow first: the watch UI, notification and complications all
@@ -486,10 +712,15 @@ class SensorConnectionManager(
                         usable = usable,
                         receivedAtMs = decodedTs,
                         deltaMgDlPerMin = delta,
+                        readingIssue = issue,
+                        readingIssueDetail = issueDetail,
                     )
                     GlucoseLatencyTracer.mark(r.lifeCount, GlucoseLatencyTracer.Stage.VIEWMODEL_UPDATED)
                     BleLog.log("WATCH_STATE_UPDATED lc=${r.lifeCount} source=ble usable=$usable")
-                    BleLog.log("glucose lifeCount=${r.lifeCount} mgdl=$mg trend=${r.trendKind} usable=$usable")
+                    BleLog.log(
+                        "glucose lifeCount=${r.lifeCount} mgdl=${mg ?: "NA"} trend=${r.trendKind} " +
+                            "usable=$usable issue=${issue ?: "none"} $issueDetail",
+                    )
                     if (usable && mg != null) {
                         val reading = SensorStateStore.LastGlucose(r.lifeCount, mg, r.trendKind.name, decodedTs, delta)
                         lastSentReading = reading
@@ -505,11 +736,35 @@ class SensorConnectionManager(
                         LibreComplicationUpdater.requestAll(context, r.lifeCount)
                         // 4) Persist last — fire-and-forget, conflated, on the dedicated IO consumer.
                         persistChannel.trySend(reading)
+                    } else {
+                        WearDataSync.sendGlucoseUnavailable(
+                            context,
+                            WearDataSync.GlucoseUnavailable(
+                                lifeCount = r.lifeCount,
+                                trend = r.trendKind.name,
+                                receivedAtMs = decodedTs,
+                                reason = issue ?: GLUCOSE_ISSUE_NOT_USABLE,
+                                detail = issueDetail,
+                            ),
+                        )
+                        LibreComplicationUpdater.requestAll(context, r.lifeCount)
                     }
                 }
             }.onFailure { BleLog.log("glucose decode failed len=${combined.size}: ${it.message}") }
         }
     }
+
+    private fun glucoseReadingIssue(r: RealtimeGlucoseReading): String? = when {
+        r.currentGlucoseMgDL == null -> GLUCOSE_ISSUE_VALUE_UNAVAILABLE
+        !r.dqError.isGood -> GLUCOSE_ISSUE_DATA_QUALITY
+        r.sensorCondition != Libre3SensorCondition.OK -> GLUCOSE_ISSUE_SENSOR_CONDITION
+        !r.isCurrentGlucoseUsable -> GLUCOSE_ISSUE_NOT_USABLE
+        else -> null
+    }
+
+    private fun glucoseReadingIssueDetail(r: RealtimeGlucoseReading): String =
+        "raw=${r.uncappedCurrentMgDL} dq=0x${"%04x".format(r.dqErrorRaw)} " +
+            "condition=${r.sensorConditionRaw}/${r.sensorCondition} action=${r.actionability}"
 
     private suspend fun collectChannel(
         conn: SensorConnection,
@@ -528,9 +783,22 @@ class SensorConnectionManager(
                         BleLog.log(
                             "decoded $channel kind=${packet.kind} lifeCount=${s.lifeCount} " +
                                 "currentLifeCount=${s.currentLifeCount} patchState=${s.patchState} " +
+                                "sensorError=${s.sensorError} sensorAttention=${s.sensorAttention} " +
+                                "notifyUser=${s.shouldNotifyUser} replaceSensor=${s.shouldNotifyReplaceSensor} " +
                                 "stackDisconnectReason=${s.stackDisconnectReason} appDisconnectReason=${s.appDisconnectReason} " +
                                 "plaintext=${packet.plaintext.toHex()}",
                         )
+                        // Surface sensor errors (insertion failure / ended / replace / unknown) once per
+                        // transition: persist for complications, relay to the phone, notify the user, repaint.
+                        val statusKey = s.errorData to s.patchState
+                        if (statusKey != lastSensorStatus) {
+                            lastSensorStatus = statusKey
+                            val observedAtMs = System.currentTimeMillis()
+                            store.saveSensorStatus(s.errorData, s.patchState, observedAtMs)
+                            WearDataSync.sendSensorStatus(context, s.errorData, s.patchState, observedAtMs)
+                            SensorAttentionNotifier.onAttentionChanged(context, s.sensorAttention)
+                            LibreComplicationUpdater.requestAll(context)
+                        }
                     }
                     is DataPlaneDecodedPayload.HistoricalReadingPagePayload -> {
                         val p = payload.page
@@ -549,11 +817,29 @@ class SensorConnectionManager(
                     is DataPlaneDecodedPayload.ClinicalReadingRecordPayload -> {
                         val r = payload.record
                         val mg = r.currentGlucoseMgDL
-                        BleLog.log(
-                            "[BACKFILL] clinical lc=${r.lifeCount} mgdl=${mg ?: "NA"} " +
-                                "raw=${r.currentGlucoseRaw} historicEstimate=${r.historicLifeCountEstimate} " +
-                                "watchStoreSkipped=true",
-                        )
+                        if (mg != null) {
+                            // Recovered a minute the watch missed live (e.g. a brief BLE blip when the
+                            // phone's Wear link migrates WiFi→BT). The watch keeps no history of its own,
+                            // so relay it to the phone on the replay path — stamped at its real minute —
+                            // to fill the one-point gap instead of dropping it.
+                            val anchor = lastSentReading
+                            val estimatedMs = if (anchor != null) {
+                                (anchor.receivedAtMs - (anchor.lifeCount - r.lifeCount).toLong() * 60_000L)
+                                    .coerceAtLeast(1L)
+                            } else {
+                                System.currentTimeMillis()
+                            }
+                            val reading = SensorStateStore.LastGlucose(r.lifeCount, mg, "BACKFILL_CLINICAL", estimatedMs, null)
+                            WearDataSync.sendBackfilledGlucose(context, reading)
+                            BleLog.log(
+                                "[BACKFILL] clinical relayed lc=${r.lifeCount} mgdl=$mg estimatedMs=$estimatedMs → phone",
+                            )
+                        } else {
+                            BleLog.log(
+                                "[BACKFILL] clinical lc=${r.lifeCount} mgdl=NA " +
+                                    "raw=${r.currentGlucoseRaw} historicEstimate=${r.historicLifeCountEstimate} skipped",
+                            )
+                        }
                     }
                     else -> BleLog.log("decoded $channel kind=${packet.kind} plaintext=${packet.plaintext.toHex()}")
                 }
@@ -670,14 +956,14 @@ class SensorConnectionManager(
         }
     }
 
-    private suspend fun watchdog(conn: SensorConnection, onReconnectRequested: () -> Unit) {
+    private suspend fun watchdog(conn: SensorConnection) {
         while (true) {
             delay(WATCHDOG_CHECK_MS)
             val since = System.currentTimeMillis() - lastGlucoseAt.get()
             if (since > NO_DATA_TIMEOUT_MS) {
-                BleLog.log("watchdog: no glucose for ${since / 1000}s → forcing reconnect")
+                reconLog("SENSOR_NO_DATA_WATCHDOG noDataMs=$since → reconnect")
                 conn.disconnect()
-                onReconnectRequested()
+                requestSensorReconnect("no_data_watchdog")
                 return
             }
         }
@@ -694,10 +980,36 @@ class SensorConnectionManager(
 
     companion object {
         private const val STOP_JOIN_TIMEOUT_MS = 5_000L
-        private const val WATCHDOG_CHECK_MS = 30_000L
-        private const val NO_DATA_TIMEOUT_MS = 6 * 60_000L // glucose is minute-spaced
+        private const val WATCHDOG_CHECK_MS = 15_000L
+        private const val NO_DATA_TIMEOUT_MS = 105_000L // glucose is minute-spaced; reconnect after one clearly missed minute
         private const val POST_AUTH_PATCH_CONTROL_TIMEOUT_MS = 10_000L
         private const val HANDSHAKE_WAKE_LOCK_TIMEOUT_MS = 90_000L
         private const val PERSIST_SLOW_WARN_MS = 1_000L
+
+        /** Greppable tag for the whole sensor reconnect / reading-gap narrative on Wear OS. */
+        private const val WEAR_BLE_TAG = "[WEAR-BLE]"
+        /** Suffix must follow a buffered glucose prefix within this window, else the channel is stale. */
+        private const val FRAGMENT_ASSEMBLY_TIMEOUT_MS = 8_000L
+        private const val RECONNECT_WAKE_LOCK_TIMEOUT_MS = 5_000L
+        /** Cold/first attempt: long window for the sensor's ~minute advertising cadence. */
+        private const val COLD_SCAN_TIMEOUT_MS = 60_000L
+        /** Reconnect: the sensor re-advertises within seconds of a real drop, so fail fast into backoff. */
+        private const val RECONNECT_SCAN_TIMEOUT_MS = 12_000L
+        /** Per-attempt reconnect delay (1-based). Fast first retries, bounded climb — never the old 60s. */
+        private val RECONNECT_BACKOFF_MS = longArrayOf(
+            500L,     // attempt 1
+            2_000L,   // attempt 2
+            2_000L,   // attempt 3
+            5_000L,   // attempt 4
+            10_000L,  // attempt 5
+            20_000L,  // attempt 6
+            30_000L,  // attempt 7+
+        )
+        private const val RECONNECT_BACKOFF_MAX_MS = 30_000L
+
+        private const val GLUCOSE_ISSUE_VALUE_UNAVAILABLE = "VALUE_UNAVAILABLE"
+        private const val GLUCOSE_ISSUE_DATA_QUALITY = "DATA_QUALITY"
+        private const val GLUCOSE_ISSUE_SENSOR_CONDITION = "SENSOR_CONDITION"
+        private const val GLUCOSE_ISSUE_NOT_USABLE = "NOT_USABLE"
     }
 }

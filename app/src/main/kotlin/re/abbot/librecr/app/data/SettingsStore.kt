@@ -42,6 +42,17 @@ data class CloudSettings(
     val password: String = "",
 )
 
+/** Lock-screen Live Updates notification config. Kept separate from glucose alarms. */
+data class LiveUpdateSettings(
+    val enabled: Boolean = false,
+    val statusChipEnabled: Boolean = true,
+    val showOnHomeScreen: Boolean = true,
+    val showTrendInChip: Boolean = true,
+    val showDeltaInChip: Boolean = true,
+    val showTrendOnLockScreen: Boolean = true,
+    val showDeltaOnLockScreen: Boolean = true,
+)
+
 /** All user-facing app settings (presentation, targets, alarms, language, cloud). */
 data class AppSettings(
     val unit: GlucoseUnit = GlucoseUnit.MG_DL,
@@ -54,8 +65,11 @@ data class AppSettings(
     val redStandbyEndMinutes: Int = 7 * 60,
     val alarms: AlarmSettings = AlarmSettings(),
     val cloud: CloudSettings = CloudSettings(),
+    val liveUpdates: LiveUpdateSettings = LiveUpdateSettings(),
     val wearAppearance: WearAppearanceSettings = WearAppearanceSettings()
         .withTargets(targetLow, targetHigh),
+    /** Whether the user has accepted the one-time use agreement / medical disclaimer. */
+    val agreementAccepted: Boolean = false,
 )
 
 /**
@@ -66,6 +80,7 @@ class SettingsStore(private val context: Context) {
     private val keyUnit = stringPreferencesKey("glucose_unit")
     private val keyTargetLow = intPreferencesKey("target_low")
     private val keyTargetHigh = intPreferencesKey("target_high")
+    private val keyAgreementAccepted = booleanPreferencesKey("agreement_accepted")
     private val keyLanguageTag = stringPreferencesKey("language_tag")
     private val keyRedStandbyEnabled = booleanPreferencesKey("red_standby_enabled")
     private val keyRedStandbyStart = intPreferencesKey("red_standby_start")
@@ -93,6 +108,14 @@ class SettingsStore(private val context: Context) {
     private val keyCloudEmail = stringPreferencesKey("cloud_email")
     private val keyCloudPassword = stringPreferencesKey("cloud_password")
 
+    private val keyLiveUpdatesEnabled = booleanPreferencesKey("live_updates_enabled")
+    private val keyLiveUpdatesStatusChipEnabled = booleanPreferencesKey("live_updates_status_chip_enabled")
+    private val keyLiveUpdatesShowOnHomeScreen = booleanPreferencesKey("live_updates_show_on_home_screen")
+    private val keyLiveUpdatesShowTrendInChip = booleanPreferencesKey("live_updates_show_trend_in_chip")
+    private val keyLiveUpdatesShowDeltaInChip = booleanPreferencesKey("live_updates_show_delta_in_chip")
+    private val keyLiveUpdatesShowTrendOnLockScreen = booleanPreferencesKey("live_updates_show_trend_on_lock_screen")
+    private val keyLiveUpdatesShowDeltaOnLockScreen = booleanPreferencesKey("live_updates_show_delta_on_lock_screen")
+
     private val keyWearFontWeight = stringPreferencesKey("wear_appearance_font_weight")
     private val keyWearGlucoseLowColor = intPreferencesKey("wear_appearance_glucose_low_color")
     private val keyWearGlucoseInRangeColor = intPreferencesKey("wear_appearance_glucose_in_range_color")
@@ -115,6 +138,7 @@ class SettingsStore(private val context: Context) {
             unit = GlucoseUnit.fromName(p[keyUnit]),
             targetLow = targetLow,
             targetHigh = targetHigh,
+            agreementAccepted = p[keyAgreementAccepted] ?: false,
             languageTag = p[keyLanguageTag] ?: "",
             redStandbyEnabled = p[keyRedStandbyEnabled] ?: true,
             redStandbyStartMinutes = normalizeQuarterHour(p[keyRedStandbyStart] ?: 22 * 60),
@@ -142,6 +166,15 @@ class SettingsStore(private val context: Context) {
                 uploadEnabled = p[keyCloudEnabled] ?: false,
                 email = p[keyCloudEmail] ?: "",
                 password = p[keyCloudPassword] ?: "",
+            ),
+            liveUpdates = LiveUpdateSettings(
+                enabled = p[keyLiveUpdatesEnabled] ?: false,
+                statusChipEnabled = p[keyLiveUpdatesStatusChipEnabled] ?: true,
+                showOnHomeScreen = p[keyLiveUpdatesShowOnHomeScreen] ?: true,
+                showTrendInChip = p[keyLiveUpdatesShowTrendInChip] ?: true,
+                showDeltaInChip = p[keyLiveUpdatesShowDeltaInChip] ?: true,
+                showTrendOnLockScreen = p[keyLiveUpdatesShowTrendOnLockScreen] ?: true,
+                showDeltaOnLockScreen = p[keyLiveUpdatesShowDeltaOnLockScreen] ?: true,
             ),
             wearAppearance = WearAppearanceSettings(
                 fontWeight = WearDisplayFontWeight.fromName(p[keyWearFontWeight]),
@@ -179,12 +212,24 @@ class SettingsStore(private val context: Context) {
         it[keyCloudPassword] = password
     }
 
+    suspend fun setLiveUpdates(liveUpdates: LiveUpdateSettings) = edit {
+        it[keyLiveUpdatesEnabled] = liveUpdates.enabled
+        it[keyLiveUpdatesStatusChipEnabled] = liveUpdates.statusChipEnabled
+        it[keyLiveUpdatesShowOnHomeScreen] = liveUpdates.showOnHomeScreen
+        it[keyLiveUpdatesShowTrendInChip] = liveUpdates.showTrendInChip
+        it[keyLiveUpdatesShowDeltaInChip] = liveUpdates.showDeltaInChip
+        it[keyLiveUpdatesShowTrendOnLockScreen] = liveUpdates.showTrendOnLockScreen
+        it[keyLiveUpdatesShowDeltaOnLockScreen] = liveUpdates.showDeltaOnLockScreen
+    }
+
     suspend fun setUnit(unit: GlucoseUnit) = edit { it[keyUnit] = unit.name }
 
     suspend fun setTargets(low: Int, high: Int) = edit {
         it[keyTargetLow] = low
         it[keyTargetHigh] = high
     }
+
+    suspend fun setAgreementAccepted(accepted: Boolean) = edit { it[keyAgreementAccepted] = accepted }
 
     suspend fun setLanguageTag(tag: String) = edit { it[keyLanguageTag] = tag }
 

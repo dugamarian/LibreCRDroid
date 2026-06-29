@@ -32,6 +32,10 @@ object BleLog {
         _log.value = lines.toList()
     }
 
+    /** Current ring-buffer contents, oldest→newest. Used to ship the watch log to the phone viewer. */
+    @Synchronized
+    fun snapshot(): List<String> = lines.toList()
+
     fun hex(data: ByteArray): String {
         val sb = StringBuilder(data.size * 2)
         for (b in data) sb.append("%02x".format(b.toInt() and 0xff))

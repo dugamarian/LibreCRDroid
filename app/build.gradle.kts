@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "re.abbot.librecr.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "re.abbot.librecr.app"

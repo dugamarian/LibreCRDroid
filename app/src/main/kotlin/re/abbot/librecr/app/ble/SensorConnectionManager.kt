@@ -21,6 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import re.abbot.librecr.app.data.ImportedSession
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.log.BleLog
+import re.abbot.librecr.app.alarm.SensorAttentionNotifier
 import re.abbot.librecr.app.wear.WearDataSync
 import re.abbot.librecr.protocol.dataplane.DataFrame
 import re.abbot.librecr.protocol.dataplane.DataPlaneChannel
@@ -29,8 +30,12 @@ import re.abbot.librecr.protocol.dataplane.DataPlaneDecodedPayload
 import re.abbot.librecr.protocol.dataplane.DataPlaneDecoder
 import re.abbot.librecr.protocol.dataplane.DataPlaneNotificationAssembler
 import re.abbot.librecr.protocol.dataplane.DataPlanePacketKind
+import re.abbot.librecr.protocol.dataplane.Libre3SensorCondition
 import re.abbot.librecr.protocol.dataplane.PatchControlCommand
+import re.abbot.librecr.protocol.dataplane.RealtimeGlucoseReading
+import re.abbot.librecr.protocol.crypto.AesCcmException
 import re.abbot.librecr.protocol.pairing.PairingFlow
+import re.abbot.librecr.protocol.pairing.PairingFlowException
 import re.abbot.librecr.protocol.pairing.PhoneCert
 import re.abbot.librecr.protocol.pairing.SessionKey
 import re.abbot.librecr.protocol.toHex
@@ -47,6 +52,8 @@ data class GlucoseUi(
     val usable: Boolean,
     val receivedAtMs: Long,
     val deltaMgDlPerMin: Double? = null,
+    val readingIssue: String? = null,
+    val readingIssueDetail: String? = null,
 )
 
 private data class BackfillRequest(
@@ -61,7 +68,7 @@ private data class LifecycleUpdate(
 
 /**
  * Owns the full connection lifecycle: scan → connect → security handshake
- * (fresh command-gated local derivation every attempt) → CCCD re-arm →
+ * (fresh command-gated local derivation every attempt) → post-handshake CCCD enable →
  * per-minute data loop, with self-healing reconnect and a no-data watchdog.
  * This is where "connects stably + delivers glucose every minute" lives.
  */
@@ -81,9 +88,14 @@ class SensorConnectionManager(
     private val lastGlucoseAt = AtomicLong(0)
     private var loopJob: Job? = null
     @Volatile private var activeConnection: SensorConnection? = null
+    @Volatile private var activeSession: ImportedSession? = null
     @Volatile private var cachedPhase5RawKey: ByteArray? = null
+    /** Consecutive non-mismatch cached-reconnect failures; a correct key survives transient blips. */
+    @Volatile private var cachedReconnectFailures: Int = 0
     @Volatile private var lastDecodedLifeCount: Int? = null
     @Volatile private var lastSentReading: SensorStateStore.LastGlucose? = null
+    /** Last (errorData, patchState) pair we persisted/relayed, so we act only on real transitions. */
+    @Volatile private var lastSensorStatus: Pair<Int, Int>? = null
 
     // Match the stable Wear path: live decode/UI/relay never waits for DataStore. A single
     // conflated IO consumer persists only the newest pending reading, so slow flash I/O cannot
@@ -127,13 +139,24 @@ class SensorConnectionManager(
         allowCandidateFirstPair: Boolean = false,
     ) {
         if (loopJob?.isActive == true) {
-            BleLog.log("manager: start ignored; connection loop already active")
-            return
+            if (activeSession.isSameSensorAs(session)) {
+                BleLog.log("manager: start ignored; connection loop already active")
+                return
+            }
+            BleLog.log("manager: switching sensor session; closing previous connection loop")
+            loopJob?.cancel()
+            activeConnection?.disconnect()
+            activeConnection?.close()
+            activeConnection = null
         }
         loopJob?.cancel()
+        clearCurrentGlucoseState()
         lastSentReading = null
+        lastSensorStatus = null
+        cachedReconnectFailures = 0
         cachedPhase5RawKey = session.phase5RawKey?.copyOf()
         val localProvisioning = session.withoutTransientCrypto()
+        activeSession = localProvisioning
         BleLog.log(
             "manager: starting independent BLE loop; cachedResumeKey=${cachedPhase5RawKey != null} " +
                 "allowCandidateFirstPair=$allowCandidateFirstPair transientKeyPersisted=false"
@@ -148,9 +171,30 @@ class SensorConnectionManager(
         activeConnection?.disconnect()
         activeConnection?.close()
         activeConnection = null
+        activeSession = null
+        clearCurrentGlucoseState()
         _state.value = ConnectionState.IDLE
         _statusLine.value = "stopped"
         BleLog.log("manager: stop requested; active GATT closed")
+    }
+
+    private fun clearCurrentGlucoseState() {
+        _glucose.value = null
+        lastGlucoseAt.set(0L)
+        lastDecodedLifeCount = null
+        lastSentReading = null
+        lastSensorStatus = null
+        cachedReconnectFailures = 0
+    }
+
+    private fun ImportedSession?.isSameSensorAs(next: ImportedSession): Boolean {
+        val previous = this ?: return false
+        val previousSerial = previous.serial?.takeIf { it.isNotBlank() }
+        val nextSerial = next.serial?.takeIf { it.isNotBlank() }
+        if (previousSerial != null && nextSerial != null) {
+            return previousSerial.equals(nextSerial, ignoreCase = true)
+        }
+        return previous.bleAddress.equals(next.bleAddress, ignoreCase = true)
     }
 
     /** Publish a watch-relayed value immediately; the listener persists it separately. */
@@ -158,6 +202,13 @@ class SensorConnectionManager(
         val current = _glucose.value
         if (current != null && current.lifeCount > reading.lifeCount) {
             BleLog.log("PHONE_STATE_UPDATED skipped stale remote lc=${reading.lifeCount} current=${current.lifeCount}")
+            return
+        }
+        if (current != null && current.lifeCount == reading.lifeCount) {
+            BleLog.log(
+                "PHONE_STATE_UPDATED skipped duplicate remote lc=${reading.lifeCount} " +
+                    "currentTrend=${current.trend} incomingTrend=${reading.trend}",
+            )
             return
         }
         _glucose.value = GlucoseUi(
@@ -170,6 +221,32 @@ class SensorConnectionManager(
         )
         lastSentReading = reading
         BleLog.log("PHONE_STATE_UPDATED lc=${reading.lifeCount} source=remote")
+    }
+
+    /** Publish a non-numeric realtime sensor reading relayed by the watch. */
+    fun acceptRemoteGlucoseUnavailable(event: WearDataSync.GlucoseUnavailable) {
+        val current = _glucose.value
+        if (current != null && current.lifeCount > event.lifeCount) {
+            BleLog.log("PHONE_STATE_UPDATED skipped stale remote unavailable lc=${event.lifeCount} current=${current.lifeCount}")
+            return
+        }
+        if (current != null && current.lifeCount == event.lifeCount && !current.usable) {
+            BleLog.log("PHONE_STATE_UPDATED skipped duplicate remote unavailable lc=${event.lifeCount}")
+            return
+        }
+        _glucose.value = GlucoseUi(
+            mgDL = null,
+            trend = event.trend,
+            lifeCount = event.lifeCount,
+            usable = false,
+            receivedAtMs = event.receivedAtMs,
+            readingIssue = event.reason,
+            readingIssueDetail = event.detail,
+        )
+        BleLog.log(
+            "PHONE_STATE_UPDATED lc=${event.lifeCount} source=remote usable=false " +
+                "issue=${event.reason} ${event.detail}",
+        )
     }
 
     suspend fun stopAndJoin(timeoutMs: Long = STOP_JOIN_TIMEOUT_MS): Boolean {
@@ -330,7 +407,7 @@ class SensorConnectionManager(
         firstPairEphemeral: SessionKey.FirstPairNativeEphemeral?,
     ): AuthorizationOutcome {
         val transport = AndroidGattTransport(conn)
-        val phoneCert = PhoneCert.bundledCapturedUser()
+        val phoneCert = PhoneCert.bundled162b()
         BleLog.log("manager: phone cert prefix=${phoneCert.raw.copyOfRange(0, 4).toHex()}")
         val flow = PairingFlow(transport, phoneCert = phoneCert, logger = { BleLog.log(it) })
         val resumeKey = cachedPhase5RawKey
@@ -338,12 +415,25 @@ class SensorConnectionManager(
             BleLog.log("manager: cached reconnect authorization (StartAuthorization only)")
             try {
                 val result = flow.runCachedReconnectHandshake(session.blePin, resumeKey)
+                cachedReconnectFailures = 0
                 rememberPhase5RawKey(result.phase5RawKey)
                 return AuthorizationOutcome(result, "cached reconnect handshake")
             } catch (e: Exception) {
-                forgetPhase5RawKey()
-                BleLog.log("manager: cached reconnect failed (${e.message}); next attempt will use full local handshake")
-                throw IllegalStateException("cached reconnect failed; retry full handshake on next attempt", e)
+                // Discard the cached key ONLY when it is *provably* wrong (Phase 6 CCM/echo failure).
+                // Discarding it forces a full first-pair handshake, which an already-provisioned Libre 3
+                // can refuse to honor without a fresh NFC switch-receiver — i.e. an over-eager discard can
+                // strand the session ("sensor stopped, fixed only by New Sensor"). So a transient drop
+                // (status=19/8), a timeout, or a failure count must NEVER throw the key away; keep it and
+                // retry the cached path. Only a real key mismatch (sensor re-provisioned elsewhere) drops it.
+                cachedReconnectFailures += 1
+                if (isKeyMismatch(e)) {
+                    forgetPhase5RawKey()
+                    cachedReconnectFailures = 0
+                    BleLog.log("manager: cached reconnect failed (${e.message}); cached key DISCARDED (provable key mismatch); next attempt full handshake")
+                } else {
+                    BleLog.log("manager: cached reconnect failed (${e.message}); cached key KEPT (transient drop/timeout #$cachedReconnectFailures — status=19/8 & timeouts never discard the key)")
+                }
+                throw IllegalStateException("cached reconnect failed; retry on next attempt", e)
             }
         }
 
@@ -392,6 +482,21 @@ class SensorConnectionManager(
             .onFailure { BleLog.log("manager: cached Phase 5 resume key clear failed: ${it.message}") }
     }
 
+    /**
+     * True only when the cached key is *provably* wrong: a Phase 6 CCM MAC / R1-R2 echo failure during
+     * the handshake. Deliberately does NOT include GATT status=19 (peer-terminated) — that is a transient
+     * link drop (RF, Wi-Fi/BT coexistence, slow handshake), not proof of a bad key. Treating it as a
+     * mismatch discarded a good key and stranded the session until a manual NFC re-provision.
+     */
+    private fun isKeyMismatch(error: Throwable): Boolean {
+        var t: Throwable? = error
+        while (t != null) {
+            if (t is AesCcmException || t is PairingFlowException.Phase6VerificationFailed) return true
+            t = t.cause
+        }
+        return false
+    }
+
     private suspend fun <T> withHandshakeWakeLock(block: suspend () -> T): T {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleHandshake")
@@ -416,7 +521,7 @@ class SensorConnectionManager(
         val observedName = scan.advertisedName?.takeIf { it.isNotBlank() } ?: return session
         if (normalizeIdentity(session.bleDeviceName) == normalizeIdentity(observedName)) return session
         val updated = session.copy(bleDeviceName = observedName)
-        store.saveSession(updated)
+        store.saveSession(updated, preserveCachedKeyWhenKeyless = true)
         BleLog.log("manager: cached permanent BLE device name=$observedName for ${session.bleAddress}")
         return updated
     }
@@ -476,6 +581,8 @@ class SensorConnectionManager(
                     lastGlucoseAt.set(decodedTs)
                     val mg = r.currentGlucoseMgDL
                     val usable = r.isCurrentGlucoseUsable
+                    val issue = glucoseReadingIssue(r)
+                    val issueDetail = glucoseReadingIssueDetail(r)
                     val delta = if (usable && mg != null) deltaPerMin(lastSentReading, mg, decodedTs) else null
 
                     // Publish first. UI, overlays and the foreground notification observe this
@@ -487,9 +594,14 @@ class SensorConnectionManager(
                         usable = usable,
                         receivedAtMs = decodedTs,
                         deltaMgDlPerMin = delta,
+                        readingIssue = issue,
+                        readingIssueDetail = issueDetail,
                     )
                     BleLog.log("PHONE_STATE_UPDATED lc=${r.lifeCount} source=ble usable=$usable")
-                    BleLog.log("glucose lifeCount=${r.lifeCount} mgdl=$mg trend=${r.trendKind} usable=$usable")
+                    BleLog.log(
+                        "glucose lifeCount=${r.lifeCount} mgdl=${mg ?: "NA"} trend=${r.trendKind} " +
+                            "usable=$usable issue=${issue ?: "none"} $issueDetail",
+                    )
 
                     if (usable && mg != null) {
                         val reading = SensorStateStore.LastGlucose(
@@ -505,11 +617,34 @@ class SensorConnectionManager(
                         // and fire-and-forget, exactly like the stable Wear implementation.
                         WearDataSync.sendGlucose(context, reading)
                         persistChannel.trySend(reading)
+                    } else {
+                        WearDataSync.sendGlucoseUnavailable(
+                            context,
+                            WearDataSync.GlucoseUnavailable(
+                                lifeCount = r.lifeCount,
+                                trend = r.trendKind.name,
+                                receivedAtMs = decodedTs,
+                                reason = issue ?: GLUCOSE_ISSUE_NOT_USABLE,
+                                detail = issueDetail,
+                            ),
+                        )
                     }
                 }
             }.onFailure { BleLog.log("glucose decode failed len=${combined.size}: ${it.message}") }
         }
     }
+
+    private fun glucoseReadingIssue(r: RealtimeGlucoseReading): String? = when {
+        r.currentGlucoseMgDL == null -> GLUCOSE_ISSUE_VALUE_UNAVAILABLE
+        !r.dqError.isGood -> GLUCOSE_ISSUE_DATA_QUALITY
+        r.sensorCondition != Libre3SensorCondition.OK -> GLUCOSE_ISSUE_SENSOR_CONDITION
+        !r.isCurrentGlucoseUsable -> GLUCOSE_ISSUE_NOT_USABLE
+        else -> null
+    }
+
+    private fun glucoseReadingIssueDetail(r: RealtimeGlucoseReading): String =
+        "raw=${r.uncappedCurrentMgDL} dq=0x${"%04x".format(r.dqErrorRaw)} " +
+            "condition=${r.sensorConditionRaw}/${r.sensorCondition} action=${r.actionability}"
 
     private suspend fun collectChannel(
         conn: SensorConnection,
@@ -534,9 +669,21 @@ class SensorConnectionManager(
                         BleLog.log(
                             "decoded $channel kind=${packet.kind} lifeCount=${s.lifeCount} " +
                                 "currentLifeCount=${s.currentLifeCount} patchState=${s.patchState} " +
+                                "sensorError=${s.sensorError} sensorAttention=${s.sensorAttention} " +
+                                "notifyUser=${s.shouldNotifyUser} replaceSensor=${s.shouldNotifyReplaceSensor} " +
                                 "stackDisconnectReason=${s.stackDisconnectReason} appDisconnectReason=${s.appDisconnectReason} " +
                                 "plaintext=${packet.plaintext.toHex()}",
                         )
+                        // Surface sensor errors (insertion failure / ended / replace / unknown) once per
+                        // transition: persist for UI + complications, relay to the watch, notify the user.
+                        val statusKey = s.errorData to s.patchState
+                        if (statusKey != lastSensorStatus) {
+                            lastSensorStatus = statusKey
+                            val observedAtMs = System.currentTimeMillis()
+                            store.saveSensorStatus(s.errorData, s.patchState, observedAtMs)
+                            WearDataSync.sendSensorStatus(context, s.errorData, s.patchState, observedAtMs)
+                            SensorAttentionNotifier.onAttentionChanged(context, s.sensorAttention)
+                        }
                     }
                     is DataPlaneDecodedPayload.HistoricalReadingPagePayload -> {
                         val p = payload.page
@@ -708,10 +855,14 @@ class SensorConnectionManager(
 
     companion object {
         private const val STOP_JOIN_TIMEOUT_MS = 5_000L
-        private const val WATCHDOG_CHECK_MS = 30_000L
-        private const val NO_DATA_TIMEOUT_MS = 6 * 60_000L // glucose is minute-spaced
+        private const val WATCHDOG_CHECK_MS = 15_000L
+        private const val NO_DATA_TIMEOUT_MS = 105_000L // glucose is minute-spaced; reconnect after one clearly missed minute
         private const val POST_AUTH_PATCH_CONTROL_TIMEOUT_MS = 10_000L
         private const val HANDSHAKE_WAKE_LOCK_TIMEOUT_MS = 90_000L
         private const val PERSIST_SLOW_WARN_MS = 1_000L
+        private const val GLUCOSE_ISSUE_VALUE_UNAVAILABLE = "VALUE_UNAVAILABLE"
+        private const val GLUCOSE_ISSUE_DATA_QUALITY = "DATA_QUALITY"
+        private const val GLUCOSE_ISSUE_SENSOR_CONDITION = "SENSOR_CONDITION"
+        private const val GLUCOSE_ISSUE_NOT_USABLE = "NOT_USABLE"
     }
 }

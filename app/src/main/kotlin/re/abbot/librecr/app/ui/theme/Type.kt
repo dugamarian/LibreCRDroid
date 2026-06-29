@@ -8,7 +8,7 @@ import androidx.compose.ui.text.font.FontWeight
 import re.abbot.librecr.app.R
 
 /**
- * Google Sans Rounded (the ROND=100 rounded cut requested) — the two static TTFs
+ * Google Sans Rounded  — the two static TTFs
  * live in res/font. Compose synthesises the in-between weights (Medium/SemiBold)
  * from these two anchors.
  */

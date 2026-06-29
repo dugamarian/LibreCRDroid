@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="aod_accessibility_description">Affiche la glycémie sur l\'écran de verrouillage et l\'Always-On Display.</string>
+    <string name="aod_accessibility_description">Affiche la glycémie uniquement sur l\'Always-On Display.</string>
 
     <!-- Navigation + screen titles -->
     <string name="nav_home">Accueil</string>
@@ -9,6 +9,7 @@
     <string name="title_app">LibreCR</string>
     <string name="title_sensor">Connexion capteur</string>
     <string name="title_alarms">Alarmes</string>
+    <string name="title_live_updates">Live Updates</string>
     <string name="title_floating">Glycémie flottante</string>
     <string name="title_aod">Always-On Display</string>
     <string name="title_wear_os">Wear OS</string>
@@ -109,10 +110,11 @@
     <string name="span_hours">%1$d h</string>
 
     <!-- Settings hub -->
-    <string name="set_sensor_s">BLE, NFC, récupération, Wear OS</string>
+    <string name="set_sensor_s">Nouveau capteur ou capteur existant</string>
     <string name="set_alarms_s">Seuils, report, heures actives</string>
+    <string name="set_live_updates_s">Chip sur écran verrouillé</string>
     <string name="set_floating_s">Bulle au-dessus des applis</string>
-    <string name="set_aod_s">Écran verrouillé / AOD</string>
+    <string name="set_aod_s">Always-On Display uniquement</string>
     <string name="set_wear_appearance_s">Aspect de la montre, couleurs et complications</string>
     <string name="set_units_s">mg/dL ou mmol/L, cible</string>
     <string name="set_language_s">Română, English, Français</string>
@@ -150,6 +152,27 @@
     <string name="lang_system">Langue du système</string>
     <string name="lang_desc">Changer la langue recharge l\'interface.</string>
 
+    <!-- Live Updates -->
+    <string name="live_updates_enable">Activer Live Updates</string>
+    <string name="live_updates_desc">Affiche la dernière glycémie sur l’écran verrouillé avec un canal séparé, sans son ni vibration.</string>
+    <string name="live_updates_promoted_allowed">Android autorise le chip promu.</string>
+    <string name="live_updates_promoted_blocked">Le chip promu est désactivé dans les réglages Android.</string>
+    <string name="live_updates_system_settings">Réglages Android Live Updates</string>
+    <string name="live_updates_home_screen">Live Updates sur l’écran d’accueil</string>
+    <string name="live_updates_home_screen_desc">Quand cette option est désactivée, LibreCR ne demande plus la promotion Live Update ; Android peut encore afficher la notification normale sur l’écran verrouillé.</string>
+    <string name="live_updates_chip_section">Chip</string>
+    <string name="live_updates_chip_preview">Exemple : %1$s</string>
+    <string name="live_updates_status_chip">Chip de statut</string>
+    <string name="live_updates_status_chip_disabled">Le chip de statut est désactivé ; la notification live reste disponible sur l’écran verrouillé.</string>
+    <string name="live_updates_chip_trend">Flèche de tendance dans le chip</string>
+    <string name="live_updates_chip_delta">Delta dans le chip</string>
+    <string name="live_updates_lock_section">Écran verrouillé</string>
+    <string name="live_updates_lock_trend">Tendance sur l’écran verrouillé</string>
+    <string name="live_updates_lock_delta">Delta sur l’écran verrouillé</string>
+    <string name="live_updates_notification_title">Glycémie en direct</string>
+    <string name="live_updates_channel_name">Live Updates glycémie</string>
+    <string name="live_updates_channel_desc">Mises à jour en direct de la glycémie sur l’écran verrouillé.</string>
+
     <!-- Alarms -->
     <string name="alarms_enable">Activer les alarmes</string>
     <string name="alarms_desc">Les seuils sont vérifiés à chaque mesure du capteur.</string>
@@ -183,6 +206,7 @@
     <string name="log_clear">Effacer</string>
     <string name="log_stop">Arrêter</string>
     <string name="log_start">Démarrer</string>
+    <string name="log_watch">Montre</string>
 
     <!-- Recent history + CSV import -->
     <string name="home_recent">Historique récent</string>
@@ -255,4 +279,10 @@
     <string name="insight_unstable_days_desc">%1$d jours sous 50%% dans la cible.</string>
     <string name="insight_a1c_estimate">HbA1c estimée élevée</string>
     <string name="insight_a1c_estimate_desc">GMI %1$.1f%%. Parlez-en à votre médecin.</string>
+
+    <!-- One-time use agreement / medical disclaimer (shown before first use) -->
+    <string name="agreement_title">Accord d\'utilisation</string>
+    <string name="agreement_accept">J\'accepte</string>
+    <string name="agreement_exit">Quitter</string>
+    <string name="agreement_body">LibreCRDroid est un logiciel expérimental open-source qui lit un capteur FreeStyle Libre 3 via Bluetooth. Ce N\'est PAS un dispositif médical et il N\'est ni approuvé ni certifié pour un usage médical.\n\n• Ne prenez aucune décision de traitement, de dosage ou médicale sur la base de cette application. Confirmez toujours avec un lecteur de glycémie capillaire et suivez les conseils de votre professionnel de santé.\n\n• L\'application fait de l\'ingénierie inverse sur un protocole non documenté et peut cesser de fonctionner, afficher de mauvaises valeurs, manquer des mesures ou échouer sans préavis.\n\n• L\'utilisation de l\'application peut affecter le capteur, y compris sa batterie et sa durée de vie ; les développeurs ne sont pas responsables de la perte ou du dysfonctionnement du capteur.\n\n• Ce projet n\'est ni affilié, ni approuvé, ni soutenu par Abbott. FreeStyle et Libre sont des marques de leurs propriétaires respectifs.\n\n• Le logiciel est fourni « tel quel », sans aucune garantie. Vous l\'utilisez à vos propres risques. Les développeurs déclinent toute responsabilité en cas de préjudice, blessure ou perte résultant de son utilisation.\n\nEn appuyant sur « J\'accepte », vous confirmez avoir lu et compris cet accord et vous assumez l\'entière responsabilité de l\'utilisation de l\'application.</string>
 </resources>

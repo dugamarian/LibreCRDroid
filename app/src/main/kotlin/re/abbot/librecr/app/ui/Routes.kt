@@ -8,6 +8,7 @@ object Routes {
 
     const val SENSOR = "settings/sensor"
     const val ALARMS = "settings/alarms"
+    const val LIVE_UPDATES = "settings/live_updates"
     const val CLOUD = "settings/cloud"
     const val FLOATING = "settings/floating"
     const val AOD = "settings/aod"

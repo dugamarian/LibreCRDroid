@@ -24,15 +24,20 @@ object WearDataSync {
     const val PATH_STOP = "/librecr/stop"
     const val PATH_STOPPED = "/librecr/stopped"
     const val PATH_GLUCOSE = "/librecr/glucose"
+    const val PATH_GLUCOSE_UNAVAILABLE = "/librecr/glucose/unavailable"
+    const val PATH_SENSOR_STATUS = "/librecr/sensor_status"
     const val PATH_GLUCOSE_ACK = "/librecr/glucose/ack"
     const val PATH_GLUCOSE_REPLAY = "/librecr/glucose/replay"
     const val PATH_GLUCOSE_REPLAY_PREFIX = "/librecr/glucose/replay/"
     const val PATH_GLUCOSE_REPLAY_REQUEST = "/librecr/glucose/replay_request"
     const val PATH_WEAR_APPEARANCE = "/librecr/wear_appearance"
     const val PATH_WEAR_APPEARANCE_REQUEST = "/librecr/wear_appearance/request"
+    const val PATH_LOG = "/librecr/log"
+    const val PATH_LOG_REQUEST = "/librecr/log/request"
+    private const val LOG_SYNC_MAX_LINES = 500
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val pendingStopAck = AtomicReference<CompletableDeferred<Unit>?>(null)
+    private val pendingStopAck = AtomicReference<CompletableDeferred<Boolean>?>(null)
     private val glucoseBufferLock = Any()
     private val glucoseBuffer = LinkedHashMap<Int, BufferedGlucose>()
     @Volatile private var retryLoopStarted = false
@@ -40,6 +45,14 @@ object WearDataSync {
     data class ReplayRequest(
         val fromLifeCount: Int,
         val toLifeCount: Int,
+    )
+
+    data class GlucoseUnavailable(
+        val lifeCount: Int,
+        val trend: String,
+        val receivedAtMs: Long,
+        val reason: String,
+        val detail: String,
     )
 
     private data class BufferedGlucose(
@@ -65,30 +78,40 @@ object WearDataSync {
     }
 
     suspend fun requestStopAndWait(context: Context, timeoutMs: Long = 7_000L): Boolean {
-        val ack = CompletableDeferred<Unit>()
+        val ack = CompletableDeferred<Boolean>()
         pendingStopAck.set(ack)
         sendStop(context)
-        val stopped = withTimeoutOrNull(timeoutMs) {
+        val wasActive = withTimeoutOrNull(timeoutMs) {
             ack.await()
-            true
         } ?: false
         pendingStopAck.compareAndSet(ack, null)
-        BleLog.log("wear: stop ack received=$stopped")
-        return stopped
+        BleLog.log("wear: stop ack received active=$wasActive")
+        return wasActive
     }
 
-    fun sendStopped(context: Context) {
-        sendToNearbyNodes(context, PATH_STOPPED, ByteArray(0))
+    fun sendStopped(context: Context, wasActive: Boolean) {
+        val payload = JSONObject()
+            .put("wasActive", wasActive)
+            .put("stoppedAtMs", System.currentTimeMillis())
+            .toString()
+            .toByteArray()
+        sendToNearbyNodes(context, PATH_STOPPED, payload)
     }
 
-    fun notifyStopAck() {
+    fun notifyStopAck(bytes: ByteArray) {
+        val wasActive = parseStopAck(bytes)
         val ack = pendingStopAck.getAndSet(null)
         if (ack == null) {
-            BleLog.log("wear: unsolicited stop ack")
+            BleLog.log("wear: unsolicited stop ack active=$wasActive")
         } else {
-            ack.complete(Unit)
+            ack.complete(wasActive)
         }
     }
+
+    private fun parseStopAck(bytes: ByteArray): Boolean =
+        runCatching {
+            if (bytes.isEmpty()) true else JSONObject(String(bytes)).optBoolean("wasActive", true)
+        }.getOrDefault(true)
 
     fun sendGlucose(context: Context, reading: SensorStateStore.LastGlucose, timeline: GlucoseTimeline? = null) {
         val app = context.applicationContext
@@ -104,6 +127,40 @@ object WearDataSync {
         )
     }
 
+    /**
+     * Relay a reading recovered via on-watch backfill (an earlier minute the watch missed live) to the
+     * phone. Goes on the replay path — buffered + retried like a live reading and serveable to future
+     * replay requests, but never published as the "latest" value (it is older than the current reading;
+     * the phone drops stale latest and only fills its history gap).
+     */
+    fun sendBackfilledGlucose(context: Context, reading: SensorStateStore.LastGlucose) {
+        val app = context.applicationContext
+        rememberGlucose(reading, null)
+        ensureRetryLoop(app)
+        sendBufferedGlucose(
+            context = app,
+            lifeCount = reading.lifeCount,
+            messagePath = PATH_GLUCOSE_REPLAY,
+            reason = "backfill",
+            latestDataItem = false,
+            replayDataItem = true,
+        )
+    }
+
+    fun sendGlucoseUnavailable(context: Context, event: GlucoseUnavailable) {
+        val payload = JSONObject()
+            .put("lifeCount", event.lifeCount)
+            .put("trend", event.trend)
+            .put("receivedAtMs", event.receivedAtMs)
+            .put("reason", event.reason)
+            .put("detail", event.detail)
+            .toString()
+            .toByteArray()
+        BleLog.log("wear: sending glucose unavailable lc=${event.lifeCount} reason=${event.reason}")
+        sendToNearbyNodes(context, PATH_GLUCOSE_UNAVAILABLE, payload)
+        putDataItem(context, PATH_GLUCOSE_UNAVAILABLE, payload, event.lifeCount)
+    }
+
     fun parseGlucose(bytes: ByteArray): SensorStateStore.LastGlucose {
         val json = JSONObject(String(bytes))
         return SensorStateStore.LastGlucose(
@@ -113,6 +170,44 @@ object WearDataSync {
             receivedAtMs = json.optLong("receivedAtMs", System.currentTimeMillis()),
             deltaMgDlPerMin = if (json.has("deltaMgDlPerMin")) json.getDouble("deltaMgDlPerMin") else null,
         )
+    }
+
+    fun parseGlucoseUnavailable(bytes: ByteArray): GlucoseUnavailable {
+        val json = JSONObject(String(bytes))
+        return GlucoseUnavailable(
+            lifeCount = json.getInt("lifeCount"),
+            trend = json.optString("trend", "UNKNOWN"),
+            receivedAtMs = json.optLong("receivedAtMs", System.currentTimeMillis()),
+            reason = json.optString("reason", "NOT_USABLE"),
+            detail = json.optString("detail", ""),
+        )
+    }
+
+    fun sendSensorStatus(context: Context, errorData: Int, patchState: Int, observedAtMs: Long) {
+        val payload = JSONObject()
+            .put("errorData", errorData)
+            .put("patchState", patchState)
+            .put("observedAtMs", observedAtMs)
+            .toString()
+            .toByteArray()
+        sendToNearbyNodes(context, PATH_SENSOR_STATUS, payload)
+        putDataItem(context, PATH_SENSOR_STATUS, payload)
+    }
+
+    fun parseSensorStatus(bytes: ByteArray): SensorStateStore.SensorStatusSnapshot {
+        val json = JSONObject(String(bytes))
+        return SensorStateStore.SensorStatusSnapshot(
+            errorData = json.getInt("errorData"),
+            patchState = json.getInt("patchState"),
+            observedAtMs = json.optLong("observedAtMs", System.currentTimeMillis()),
+        )
+    }
+
+    /** Ship the watch's in-memory log buffer (newest [LOG_SYNC_MAX_LINES]) to the phone's log viewer. */
+    fun sendLog(context: Context) {
+        val payload = BleLog.snapshot().takeLast(LOG_SYNC_MAX_LINES).joinToString("\n").toByteArray()
+        BleLog.log("wear: sending watch log to phone (${payload.size} bytes)")
+        sendToNearbyNodes(context, PATH_LOG, payload)
     }
 
     fun parseLifeCount(bytes: ByteArray): Int =

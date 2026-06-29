@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">LibreCRDroid</string>
-    <string name="aod_accessibility_description">Afișează glicemia pe ecranul blocat și pe Always On Display.</string>
+    <string name="aod_accessibility_description">Afișează glicemia doar pe Always On Display.</string>
 
     <!-- Navigation + screen titles -->
     <string name="nav_home">Acasă</string>
@@ -10,6 +10,7 @@
     <string name="title_app">LibreCR</string>
     <string name="title_sensor">Conectare senzor</string>
     <string name="title_alarms">Alarme</string>
+    <string name="title_live_updates">Live Updates</string>
     <string name="title_floating">Glucoză flotantă</string>
     <string name="title_aod">Always-On Display</string>
     <string name="title_wear_os">Wear OS</string>
@@ -110,10 +111,11 @@
     <string name="span_hours">%1$d h</string>
 
     <!-- Settings hub -->
-    <string name="set_sensor_s">BLE, NFC, recuperare, Wear OS</string>
+    <string name="set_sensor_s">Senzor nou sau existent</string>
     <string name="set_alarms_s">Praguri, amânare, ore active</string>
+    <string name="set_live_updates_s">Chip pe ecranul de blocare</string>
     <string name="set_floating_s">Bulă peste aplicații</string>
-    <string name="set_aod_s">Ecran blocat / AOD</string>
+    <string name="set_aod_s">Doar Always-On Display</string>
     <string name="set_wear_appearance_s">Aspect ceas, culori și complicații</string>
     <string name="set_units_s">mg/dL sau mmol/L, interval țintă</string>
     <string name="set_language_s">Română, English, Français</string>
@@ -151,6 +153,27 @@
     <string name="lang_system">Limba sistemului</string>
     <string name="lang_desc">Schimbarea limbii reîncarcă interfața.</string>
 
+    <!-- Live Updates -->
+    <string name="live_updates_enable">Activează Live Updates</string>
+    <string name="live_updates_desc">Afișează ultima glicemie pe ecranul de blocare folosind un canal separat, fără sunet sau vibrații.</string>
+    <string name="live_updates_promoted_allowed">Android permite chipul promovat.</string>
+    <string name="live_updates_promoted_blocked">Chipul promovat este dezactivat în setările Android.</string>
+    <string name="live_updates_system_settings">Setări Android pentru Live Updates</string>
+    <string name="live_updates_home_screen">Live Updates pe ecranul principal</string>
+    <string name="live_updates_home_screen_desc">Când este oprit, LibreCR nu mai cere promovarea Live Update; Android poate afișa în continuare notificarea normală pe lock-screen.</string>
+    <string name="live_updates_chip_section">Chip</string>
+    <string name="live_updates_chip_preview">Exemplu: %1$s</string>
+    <string name="live_updates_status_chip">Status chip</string>
+    <string name="live_updates_status_chip_disabled">Chipul de status este dezactivat; notificarea live rămâne disponibilă pe ecranul de blocare.</string>
+    <string name="live_updates_chip_trend">Săgeată trend în chip</string>
+    <string name="live_updates_chip_delta">Delta în chip</string>
+    <string name="live_updates_lock_section">Ecran de blocare</string>
+    <string name="live_updates_lock_trend">Trend pe ecranul de blocare</string>
+    <string name="live_updates_lock_delta">Delta pe ecranul de blocare</string>
+    <string name="live_updates_notification_title">Glucoză live</string>
+    <string name="live_updates_channel_name">Live Updates glicemie</string>
+    <string name="live_updates_channel_desc">Actualizări live pentru glicemie pe ecranul de blocare.</string>
+
     <!-- Alarms -->
     <string name="alarms_enable">Activează alarmele</string>
     <string name="alarms_desc">Pragurile sunt verificate la fiecare citire a senzorului.</string>
@@ -184,6 +207,7 @@
     <string name="log_clear">Șterge</string>
     <string name="log_stop">Oprește</string>
     <string name="log_start">Pornește</string>
+    <string name="log_watch">Ceas</string>
 
     <!-- Recent history + CSV import -->
     <string name="home_recent">Istoric recent</string>
@@ -256,4 +280,10 @@
     <string name="insight_unstable_days_desc">%1$d zile sub 50%% în țintă.</string>
     <string name="insight_a1c_estimate">HbA1c estimat ridicat</string>
     <string name="insight_a1c_estimate_desc">GMI %1$.1f%%. Discută cu medicul.</string>
+
+    <!-- One-time use agreement / medical disclaimer (shown before first use) -->
+    <string name="agreement_title">Acord de utilizare</string>
+    <string name="agreement_accept">Sunt de acord</string>
+    <string name="agreement_exit">Ieșire</string>
+    <string name="agreement_body">LibreCRDroid este software experimental, open-source, care citește un senzor FreeStyle Libre 3 prin Bluetooth. NU este un dispozitiv medical și NU este aprobat sau certificat pentru utilizare medicală.\n\n• Nu lua nicio decizie de tratament, dozare sau medicală pe baza acestei aplicații. Confirmă întotdeauna cu un glucometru cu înțepare și urmează sfatul medicului.\n\n• Aplicația folosește inginerie inversă pe un protocol nedocumentat și se poate opri, poate afișa valori greșite, poate rata citiri sau poate eșua fără avertisment.\n\n• Utilizarea aplicației poate afecta senzorul, inclusiv bateria și durata lui de viață; dezvoltatorii nu sunt responsabili pentru pierderea sau defectarea senzorului.\n\n• Acest proiect nu este afiliat, aprobat sau susținut de Abbott. FreeStyle și Libre sunt mărci ale deținătorilor lor.\n\n• Software-ul este oferit „ca atare”, fără nicio garanție. Îl folosești pe propriul risc. Dezvoltatorii nu își asumă nicio răspundere pentru daune, vătămări sau pierderi rezultate din utilizare.\n\nApăsând „Sunt de acord” confirmi că ai citit și ai înțeles acest acord și îți asumi întreaga responsabilitate pentru utilizarea aplicației.</string>
 </resources>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="aod_accessibility_description">Shows glucose on the lock screen and Always-On Display.</string>
+    <string name="aod_accessibility_description">Shows glucose only on Always-On Display.</string>
 
     <!-- Navigation + screen titles -->
     <string name="nav_home">Home</string>
@@ -9,6 +9,7 @@
     <string name="title_app">LibreCR</string>
     <string name="title_sensor">Sensor connection</string>
     <string name="title_alarms">Alarms</string>
+    <string name="title_live_updates">Live Updates</string>
     <string name="title_floating">Floating glucose</string>
     <string name="title_aod">Always-On Display</string>
     <string name="title_wear_os">Wear OS</string>
@@ -109,10 +110,11 @@
     <string name="span_hours">%1$d h</string>
 
     <!-- Settings hub -->
-    <string name="set_sensor_s">BLE, NFC, recovery, Wear OS</string>
+    <string name="set_sensor_s">New or existing sensor</string>
     <string name="set_alarms_s">Thresholds, snooze, active hours</string>
+    <string name="set_live_updates_s">Lock-screen chip</string>
     <string name="set_floating_s">Bubble over apps</string>
-    <string name="set_aod_s">Lock screen / AOD</string>
+    <string name="set_aod_s">Always-On Display only</string>
     <string name="set_wear_appearance_s">Watch appearance, colors, and complications</string>
     <string name="set_units_s">mg/dL or mmol/L, target range</string>
     <string name="set_language_s">Română, English, Français</string>
@@ -150,6 +152,27 @@
     <string name="lang_system">System language</string>
     <string name="lang_desc">Changing the language reloads the interface.</string>
 
+    <!-- Live Updates -->
+    <string name="live_updates_enable">Enable Live Updates</string>
+    <string name="live_updates_desc">Shows the latest glucose on the lock screen using a separate channel with no sound or vibration.</string>
+    <string name="live_updates_promoted_allowed">Android allows the promoted chip.</string>
+    <string name="live_updates_promoted_blocked">The promoted chip is disabled in Android settings.</string>
+    <string name="live_updates_system_settings">Android Live Updates settings</string>
+    <string name="live_updates_home_screen">Live Updates on home screen</string>
+    <string name="live_updates_home_screen_desc">When this is off, LibreCR stops requesting promoted Live Updates; Android may still show the normal lock-screen notification.</string>
+    <string name="live_updates_chip_section">Chip</string>
+    <string name="live_updates_chip_preview">Example: %1$s</string>
+    <string name="live_updates_status_chip">Status chip</string>
+    <string name="live_updates_status_chip_disabled">The status chip is disabled; the live notification remains available on the lock screen.</string>
+    <string name="live_updates_chip_trend">Trend arrow in chip</string>
+    <string name="live_updates_chip_delta">Delta in chip</string>
+    <string name="live_updates_lock_section">Lock screen</string>
+    <string name="live_updates_lock_trend">Trend on lock screen</string>
+    <string name="live_updates_lock_delta">Delta on lock screen</string>
+    <string name="live_updates_notification_title">Live glucose</string>
+    <string name="live_updates_channel_name">Glucose Live Updates</string>
+    <string name="live_updates_channel_desc">Live glucose updates on the lock screen.</string>
+
     <!-- Alarms -->
     <string name="alarms_enable">Enable alarms</string>
     <string name="alarms_desc">Thresholds are checked on every sensor reading.</string>
@@ -183,6 +206,7 @@
     <string name="log_clear">Clear</string>
     <string name="log_stop">Stop</string>
     <string name="log_start">Start</string>
+    <string name="log_watch">Watch</string>
 
     <!-- Recent history + CSV import -->
     <string name="home_recent">Recent history</string>
@@ -255,4 +279,10 @@
     <string name="insight_unstable_days_desc">%1$d days below 50%% in range.</string>
     <string name="insight_a1c_estimate">High estimated HbA1c</string>
     <string name="insight_a1c_estimate_desc">GMI %1$.1f%%. Discuss with your doctor.</string>
+
+    <!-- One-time use agreement / medical disclaimer (shown before first use) -->
+    <string name="agreement_title">User Agreement</string>
+    <string name="agreement_accept">I Agree</string>
+    <string name="agreement_exit">Exit</string>
+    <string name="agreement_body">LibreCRDroid is experimental, open-source software that reads a FreeStyle Libre 3 sensor over Bluetooth. It is NOT a medical device and is NOT approved or certified for any medical use.\n\n• Do not make any treatment, dosing, or medical decision based on this app. Always confirm with a fingerstick blood glucose meter and follow your healthcare professional\'s advice.\n\n• The app reverse-engineers an undocumented protocol and may stop working, show wrong values, miss readings, or fail without notice.\n\n• Using the app may affect the sensor, including its battery and lifetime; the developers are not responsible for any sensor loss or malfunction.\n\n• This project is not affiliated with, endorsed by, or supported by Abbott. FreeStyle and Libre are trademarks of their respective owners.\n\n• The software is provided \"as is\", without any warranty. You use it entirely at your own risk. The developers accept no liability for any harm, injury, or loss arising from its use.\n\nBy tapping \"I Agree\" you confirm that you have read and understood this agreement and accept full responsibility for using the app.</string>
 </resources>

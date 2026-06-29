@@ -2,9 +2,7 @@ package re.abbot.librecr.app.ui.sensor
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
 import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -21,11 +19,11 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,8 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -63,130 +59,48 @@ import java.util.UUID
 @Composable
 fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
+    val appSettings = LocalAppSettings.current
     val scope = rememberCoroutineScope()
     val savedSession by LibreCR.store.sessionFlow.collectAsState(initial = null)
-    val appSettings = LocalAppSettings.current
+    val watchTakeover by LibreCR.store.watchTakeoverFlow.collectAsState(initial = false)
 
     val accountlessUniqueId = remember { libreCrAccountlessUniqueId(ctx) }
     val defaultReceiverId = remember(accountlessUniqueId) { Libre3ReceiverID.accountless(accountlessUniqueId) }
+    val libreViewClient = remember { LibreViewAccountClient() }
     var receiverIdText by rememberSaveable { mutableStateOf(defaultReceiverId.unsignedValue.toString()) }
-    var connectAfterScan by rememberSaveable { mutableStateOf(false) }
     var scanning by rememberSaveable { mutableStateOf(false) }
     var nfcMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var nfcError by rememberSaveable { mutableStateOf<String?>(null) }
     var patchInfo by remember { mutableStateOf<Libre3NfcPatchInfo?>(null) }
-    var phase5RawKeyText by rememberSaveable { mutableStateOf("") }
-    var libreViewEmail by rememberSaveable(appSettings.cloud.email) {
-        mutableStateOf(appSettings.cloud.email)
-    }
-    var libreViewPassword by remember(appSettings.cloud.password) {
-        mutableStateOf(appSettings.cloud.password)
-    }
-    var libreViewLoading by rememberSaveable { mutableStateOf(false) }
-    var libreViewMessage by rememberSaveable { mutableStateOf<String?>(null) }
-    var libreViewError by rememberSaveable { mutableStateOf<String?>(null) }
+    var wearBusy by rememberSaveable { mutableStateOf(false) }
     var wearMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var wearError by rememberSaveable { mutableStateOf<String?>(null) }
-    var wearBusy by rememberSaveable { mutableStateOf(false) }
-    val libreViewClient = remember { LibreViewAccountClient() }
 
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
+    LaunchedEffect(savedSession?.bleAddress) {
+        if (savedSession == null) {
+            LibreCR.store.setWatchTakeoverEnabled(false)
+            wearMessage = null
+            wearError = null
+        }
+    }
+
     fun startService(allowCandidateFirstPair: Boolean = false) {
         permLauncher.launch(requiredPermissions())
-        scope.launch { LibreCR.store.setAutoConnectEnabled(true) }
+        scope.launch {
+            LibreCR.store.setAutoConnectEnabled(true)
+            LibreCR.store.setWatchTakeoverEnabled(false)
+        }
         SensorForegroundService.start(ctx, allowCandidateFirstPair)
     }
 
-    fun stopService() {
-        scope.launch { LibreCR.store.setAutoConnectEnabled(false) }
-        SensorForegroundService.stop(ctx)
-    }
-
-    fun savePhase5RawKey() {
-        libreViewMessage = null
-        libreViewError = "Importul/cache-ul Phase 5 este dezactivat. Reconnect-ul derivează local material nou la fiecare conexiune."
-    }
-
-    fun runCandidateFirstPair() {
-        if (savedSession == null) {
-            libreViewMessage = null
-            libreViewError = "Salvează întâi BLE/PIN pentru senzor."
-            return
-        }
-        libreViewError = null
-        libreViewMessage = "Pornesc derivarea Phase 5 pe dispozitiv."
-        startService(allowCandidateFirstPair = true)
-    }
-
-    fun sendWearConfigOnly() {
-        val session = savedSession
-        if (session == null) {
-            wearMessage = null
-            wearError = "Nu există o sesiune salvată de trimis către ceas."
-            return
-        }
-        WearDataSync.sendSession(ctx, session, startOnWatch = false)
-        wearError = null
-        wearMessage = "Configurarea a fost trimisă către ceas. Ceasul o salvează fără să pornească BLE."
-    }
-
-    fun handoffToWatch() {
-        val session = savedSession
-        if (session == null || wearBusy) {
-            wearMessage = null
-            wearError = if (session == null) "Nu există o sesiune salvată pentru ceas." else "Handoff deja în curs."
-            return
-        }
-        scope.launch {
-            wearBusy = true
-            wearError = null
-            wearMessage = "Trimit configurarea către ceas..."
-            WearDataSync.sendSession(ctx, session, startOnWatch = false)
-            delay(1_500L)
-            wearMessage = "Telefonul cedează conexiunea BLE..."
-            LibreCR.store.setAutoConnectEnabled(false)
-            val stopped = LibreCR.manager.stopAndJoin()
-            SensorForegroundService.stop(ctx)
-            if (!stopped) {
-                wearBusy = false
-                wearMessage = null
-                wearError = "Telefonul nu a confirmat închiderea completă a sesiunii BLE."
-                return@launch
-            }
-            delay(500L)
-            wearMessage = "Pornesc conexiunea pe ceas."
-            WearDataSync.sendSession(ctx, session, startOnWatch = true)
-            wearBusy = false
-        }
-    }
-
-    fun returnToPhone() {
-        val session = savedSession
-        if (session == null || wearBusy) {
-            wearMessage = null
-            wearError = if (session == null) "Nu există o sesiune salvată pe telefon." else "Handoff deja în curs."
-            return
-        }
-        scope.launch {
-            wearBusy = true
-            wearError = null
-            wearMessage = "Oprire conexiune pe ceas..."
-            val stopped = WearDataSync.requestStopAndWait(ctx)
-            if (!stopped) {
-                wearBusy = false
-                wearMessage = null
-                wearError = "Ceasul nu a confirmat închiderea sesiunii BLE; telefonul nu pornește încă."
-                return@launch
-            }
-            wearMessage = "Telefonul reia conexiunea BLE."
-            LibreCR.store.setAutoConnectEnabled(true)
-            startService(allowCandidateFirstPair = true)
-            wearBusy = false
-        }
-    }
-
-    fun saveActivation(result: Libre3NfcScanResult, replaceExistingSession: Boolean = false) {
+    fun saveActivation(
+        result: Libre3NfcScanResult,
+        replaceExistingSession: Boolean = false,
+        connectOnPhoneAfterScan: Boolean = false,
+        startOnWatchAfterScan: Boolean = false,
+    ) {
         val activation = result.activationResponse ?: return
         val receiverID = Libre3ReceiverID.fromNfcIdentityInput(receiverIdText)
         val session = ImportedSession(
@@ -213,18 +127,62 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
                 session = session,
                 startsWarmup = result.commandCode == NfcActivationCommandCode.ACTIVATE && result.patchInfo.isStorageState,
             )
-            WearDataSync.sendSession(ctx, session, startOnWatch = false)
             nfcMessage = "Senzor salvat: ${session.bleAddress}, PIN ${session.blePin.toHex()}"
             nfcError = null
             patchInfo = result.patchInfo
-            if (connectAfterScan) {
-                nfcMessage += "; pornesc derivarea locală."
-                startService(allowCandidateFirstPair = true)
+            when {
+                startOnWatchAfterScan -> {
+                    WearDataSync.sendSession(ctx, session, startOnWatch = true)
+                    LibreCR.store.setWatchTakeoverEnabled(true)
+                    nfcMessage += "; date trimise către ceas pentru conectare."
+                }
+                connectOnPhoneAfterScan -> {
+                    nfcMessage += "; pornesc conexiunea pe telefon."
+                    WearDataSync.sendSession(ctx, session, startOnWatch = false)
+                    LibreCR.store.setWatchTakeoverEnabled(false)
+                    startService(allowCandidateFirstPair = true)
+                }
+                else -> WearDataSync.sendSession(ctx, session, startOnWatch = false)
             }
         }
     }
 
-    fun startNfc(modeFactory: (Int) -> Libre3NfcScanMode, replaceExistingSession: Boolean = false) {
+    suspend fun refreshReceiverIdFromLibreViewIfConfigured(): Boolean {
+        val currentReceiverId = Libre3ReceiverID.fromNfcIdentityInput(receiverIdText)
+        if (currentReceiverId != null && currentReceiverId.value != defaultReceiverId.value) return true
+
+        val cloud = LibreCR.settings.current().cloud
+        if (cloud.email.isBlank() || cloud.password.isBlank()) return true
+
+        nfcMessage = "Obțin Account ID din LibreView..."
+        nfcError = null
+        return runCatching {
+            libreViewClient.fetchAccountIdentity(
+                username = cloud.email.trim(),
+                password = cloud.password,
+                deviceId = accountlessUniqueId,
+            )
+        }.fold(
+            onSuccess = { identity ->
+                receiverIdText = identity.accountNumber.unsignedValue.toString()
+                nfcMessage = "Account ID LibreView: ${nfcIdentityDisplay(identity.accountNumber)}"
+                true
+            },
+            onFailure = {
+                nfcMessage = null
+                nfcError = "Nu am putut obține Account ID LibreView: ${it.message ?: it.toString()}"
+                false
+            },
+        )
+    }
+
+    fun startNfc(
+        modeFactory: (Int) -> Libre3NfcScanMode,
+        replaceExistingSession: Boolean = false,
+        connectOnPhoneAfterScan: Boolean = false,
+        startOnWatchAfterScan: Boolean = false,
+        restoreWatchSessionOnFailure: ImportedSession? = null,
+    ) {
         val receiverID = Libre3ReceiverID.fromNfcIdentityInput(receiverIdText)
         if (receiverID == null) {
             nfcError = "Account ID invalid. Folosește număr decimal sau 4 bytes hex little-endian."
@@ -238,42 +196,146 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             result.onSuccess { scan ->
                 patchInfo = scan.patchInfo
                 if (scan.activationResponse != null) {
-                    saveActivation(scan, replaceExistingSession)
+                    saveActivation(
+                        scan,
+                        replaceExistingSession,
+                        connectOnPhoneAfterScan,
+                        startOnWatchAfterScan,
+                    )
                 } else if (scan.activationError != null) {
+                    restoreWatchSessionOnFailure?.let {
+                        WearDataSync.sendSession(ctx, it, startOnWatch = true)
+                    }
                     nfcMessage = null
                     nfcError = "NFC error=0x${"%02x".format(requireNotNull(scan.activationError).errorCode)}"
                 } else {
                     nfcMessage = "Patch citit: ${scan.patchInfo.serialNumber}"
                 }
             }.onFailure {
+                restoreWatchSessionOnFailure?.let { previous ->
+                    WearDataSync.sendSession(ctx, previous, startOnWatch = true)
+                }
                 nfcMessage = null
                 nfcError = it.message ?: it.toString()
             }
         }
     }
 
-    fun fetchLibreViewAccountId() {
-        if (libreViewLoading) return
-        libreViewLoading = true
-        libreViewError = null
-        libreViewMessage = "Mă conectez la LibreView..."
+    fun connectNewSensor() {
+        val previousSession = savedSession
         scope.launch {
-            LibreCR.settings.setCloudCredentials(libreViewEmail.trim(), libreViewPassword)
-            runCatching {
-                libreViewClient.fetchAccountIdentity(
-                    username = libreViewEmail.trim(),
-                    password = libreViewPassword,
-                    deviceId = accountlessUniqueId,
-                )
-            }.onSuccess { identity ->
-                receiverIdText = identity.accountNumber.unsignedValue.toString()
-                libreViewMessage = "Account ID: ${nfcIdentityDisplay(identity.accountNumber)}"
-            }.onFailure {
-                libreViewMessage = null
-                libreViewError = it.message ?: it.toString()
+            nfcError = null
+            nfcMessage = "Pregătesc conectarea la senzor nou..."
+            if (!refreshReceiverIdFromLibreViewIfConfigured()) return@launch
+            if (Libre3ReceiverID.fromNfcIdentityInput(receiverIdText) == null) {
+                nfcError = "Account ID invalid. Folosește număr decimal sau 4 bytes hex little-endian."
+                return@launch
             }
-            libreViewLoading = false
+            LibreCR.store.setAutoConnectEnabled(false)
+            LibreCR.manager.stop()
+            SensorForegroundService.stop(ctx)
+            val watchHadControl = WearDataSync.requestStopAndWait(ctx, NEW_SENSOR_WATCH_STOP_TIMEOUT_MS)
+            if (watchHadControl) {
+                nfcMessage = "Ceasul a eliberat conexiunea. Telefonul preia senzorul prin NFC..."
+            }
+            startNfc(
+                modeFactory = { Libre3NfcScanMode.ActivateOrSwitchReceiver(it) },
+                replaceExistingSession = true,
+                connectOnPhoneAfterScan = !watchHadControl,
+                startOnWatchAfterScan = watchHadControl,
+                restoreWatchSessionOnFailure = previousSession?.takeIf { watchHadControl },
+            )
         }
+    }
+
+    fun connectExistingSensor() {
+        val session = savedSession
+        if (session != null) {
+            nfcError = null
+            nfcMessage = "Pornesc conexiunea la senzorul salvat."
+            startService(allowCandidateFirstPair = true)
+            return
+        }
+        scope.launch {
+            if (!refreshReceiverIdFromLibreViewIfConfigured()) return@launch
+            startNfc(
+                modeFactory = { Libre3NfcScanMode.SwitchReceiver(it) },
+                replaceExistingSession = true,
+                connectOnPhoneAfterScan = true,
+            )
+        }
+    }
+
+    fun handoffToWatch() {
+        val session = savedSession
+        if (session == null || wearBusy) return
+        val appCtx = ctx.applicationContext
+        // Run on the process scope, not the composition scope: the handoff (stop phone BLE → wait →
+        // start watch) takes several seconds, and it must NOT be cancelled when the user leaves this
+        // screen. Commit the takeover intent up front so the switch flips on immediately and stays on
+        // (it is driven by the persisted watchTakeoverFlow); revert only if the phone fails to release.
+        LibreCR.appScope.launch {
+            LibreCR.store.setWatchTakeoverEnabled(true)
+            wearBusy = true
+            wearError = null
+            wearMessage = "Opresc orice conexiune veche pe ceas..."
+            WearDataSync.requestStopStatusAndWait(appCtx, HANDOFF_WATCH_STOP_TIMEOUT_MS)
+            LibreCR.store.setAutoConnectEnabled(false)
+            wearMessage = "Telefonul cedează conexiunea BLE..."
+            val stopped = LibreCR.manager.stopAndJoin()
+            SensorForegroundService.stop(appCtx)
+            if (!stopped) {
+                wearBusy = false
+                LibreCR.store.setWatchTakeoverEnabled(false)
+                wearMessage = null
+                wearError = "Telefonul nu a confirmat închiderea completă a sesiunii BLE."
+                return@launch
+            }
+            wearMessage = "Aștept eliberarea conexiunii BLE a senzorului..."
+            delay(HANDOFF_BLE_RELEASE_DELAY_MS)
+            wearMessage = "Pornesc conexiunea pe ceas."
+            WearDataSync.sendSession(appCtx, session, startOnWatch = true)
+            wearMessage = "Ceasul preia conexiunea. Poți închide acest ecran."
+            wearBusy = false
+        }
+    }
+
+    fun returnToPhone() {
+        if (savedSession == null || wearBusy) return
+        scope.launch {
+            wearBusy = true
+            wearError = null
+            wearMessage = "Cer ceasului să oprească senzorul..."
+            val stopAck = WearDataSync.requestStopStatusAndWait(ctx)
+            if (!stopAck.received) {
+                wearBusy = false
+                LibreCR.store.setWatchTakeoverEnabled(true)
+                wearMessage = null
+                wearError = "Ceasul nu a confirmat oprirea; telefonul nu pornește ca să evite conflictul BLE."
+                return@launch
+            }
+            wearMessage = if (stopAck.wasActive) {
+                "Ceasul a cedat conexiunea. Telefonul pornește BLE."
+            } else {
+                "Ceasul nu era conectat. Telefonul pornește BLE."
+            }
+            wearMessage = "Aștept eliberarea conexiunii BLE a senzorului..."
+            delay(HANDOFF_BLE_RELEASE_DELAY_MS)
+            LibreCR.store.clearCachedPhase5RawKey()
+            LibreCR.store.setAutoConnectEnabled(true)
+            wearMessage = "Telefonul pornește BLE cu handshake complet."
+            startService(allowCandidateFirstPair = true)
+            wearBusy = false
+        }
+    }
+
+    fun setWatchTakeover(enabled: Boolean) {
+        if (enabled) handoffToWatch() else returnToPhone()
+    }
+
+    fun cancelScan() {
+        nfcReader.cancel()
+        scanning = false
     }
 
     Column(
@@ -283,97 +345,55 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        SectionCard("Conexiune") {
-            Text(
-                if (savedSession == null) "Nu există sesiune BLE/PIN salvată." else "Sesiune salvată pentru ${savedSession?.serial ?: savedSession?.bleAddress}.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { startService() }, enabled = savedSession != null) { Text("Start BLE") }
-                FilledTonalButton(onClick = { stopService() }) { Text("Stop") }
-                OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) }) { Text("NFC") }
-            }
-        }
-
-        NfcCard(
+        SensorConnectionCard(
             nfcReader = nfcReader,
+            hasSavedSession = savedSession != null,
             receiverIdText = receiverIdText,
             onReceiverIdText = { receiverIdText = it },
-            accountStatus = receiverIdStatus(receiverIdText, accountlessUniqueId),
-            connectAfterScan = connectAfterScan,
-            onConnectAfterScan = { connectAfterScan = it },
+            accountStatus = receiverIdStatus(
+                receiverIdText,
+                accountlessUniqueId,
+                appSettings.cloud.email.isNotBlank() && appSettings.cloud.password.isNotBlank(),
+            ),
             scanning = scanning,
             patchInfo = patchInfo,
             message = nfcMessage,
             error = nfcError,
-            onReadPatch = { startNfc({ Libre3NfcScanMode.ReadPatchInfo }) },
-            onActivateOrSwitch = { startNfc({ Libre3NfcScanMode.ActivateOrSwitchReceiver(it) }) },
-            onRecoverPin = { startNfc({ Libre3NfcScanMode.ActivateOrSwitchReceiver(it) }, replaceExistingSession = true) },
-            onForceA0 = { startNfc({ Libre3NfcScanMode.ForceActivationCommand(NfcActivationCommandCode.ACTIVATE, it) }) },
-            onForceA8 = { startNfc({ Libre3NfcScanMode.ForceActivationCommand(NfcActivationCommandCode.SWITCH_RECEIVER, it) }) },
-            onCancel = { nfcReader.cancel(); scanning = false },
+            onConnectNew = ::connectNewSensor,
+            onConnectExisting = ::connectExistingSensor,
+            onCancel = ::cancelScan,
         )
 
-        SavedSensorCard(savedSession, patchInfo)
-
-        RecoveryCard(
-            email = libreViewEmail,
-            password = libreViewPassword,
-            onEmail = { value ->
-                libreViewEmail = value
-                scope.launch {
-                    LibreCR.settings.setCloudCredentials(value.trim(), libreViewPassword)
-                }
-            },
-            onPassword = { value ->
-                libreViewPassword = value
-                scope.launch {
-                    LibreCR.settings.setCloudCredentials(libreViewEmail.trim(), value)
-                }
-            },
-            loading = libreViewLoading,
-            message = libreViewMessage,
-            error = libreViewError,
-            phase5RawKey = phase5RawKeyText,
-            onPhase5RawKey = { phase5RawKeyText = it },
-            hasSavedSession = savedSession != null,
-            onFetchAccount = ::fetchLibreViewAccountId,
-            onSavePhase5 = ::savePhase5RawKey,
-            onCandidate = ::runCandidateFirstPair,
-        )
-
-        WearHandoffCard(
+        WearTakeoverCard(
             session = savedSession,
+            enabled = watchTakeover && savedSession != null,
             busy = wearBusy,
             message = wearMessage,
             error = wearError,
-            onSendConfig = ::sendWearConfigOnly,
-            onHandoff = ::handoffToWatch,
-            onReturnToPhone = ::returnToPhone,
+            onToggle = ::setWatchTakeover,
         )
+
+        SavedSensorCard(savedSession, patchInfo)
     }
 }
 
 @Composable
-private fun NfcCard(
+private fun SensorConnectionCard(
     nfcReader: AndroidLibre3NfcReader,
+    hasSavedSession: Boolean,
     receiverIdText: String,
     onReceiverIdText: (String) -> Unit,
     accountStatus: String,
-    connectAfterScan: Boolean,
-    onConnectAfterScan: (Boolean) -> Unit,
     scanning: Boolean,
     patchInfo: Libre3NfcPatchInfo?,
     message: String?,
     error: String?,
-    onReadPatch: () -> Unit,
-    onActivateOrSwitch: () -> Unit,
-    onRecoverPin: () -> Unit,
-    onForceA0: () -> Unit,
-    onForceA8: () -> Unit,
+    onConnectNew: () -> Unit,
+    onConnectExisting: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    SectionCard("Senzor / NFC") {
+    val canScan = nfcReader.isEnabled && !scanning
+    SectionCard("Conectare senzor") {
         OutlinedTextField(
             value = receiverIdText,
             onValueChange = onReceiverIdText,
@@ -382,14 +402,11 @@ private fun NfcCard(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Pornește BLE după scanare")
-                Text("Doar dacă există deja cheia Phase 5.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(checked = connectAfterScan, onCheckedChange = onConnectAfterScan)
+        if (!nfcReader.isAvailable) {
+            MessageBox("NFC nu este disponibil pe acest telefon.", true)
+        } else if (!nfcReader.isEnabled) {
+            MessageBox("NFC este oprit. Activează NFC pentru conectarea unui senzor nou.", true)
         }
-        if (!nfcReader.isAvailable) MessageBox("NFC nu este disponibil pe acest telefon.", true)
         patchInfo?.let {
             InfoRow("serial", it.serialNumber)
             InfoRow("state", "0x${"%02x".format(it.stateByte)}")
@@ -403,18 +420,66 @@ private fun NfcCard(
         }
         message?.let { MessageBox(it, false) }
         error?.let { MessageBox(it, true) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(onClick = onReadPatch, enabled = !scanning && nfcReader.isEnabled) { Text("Citește") }
-            Button(onClick = onActivateOrSwitch, enabled = !scanning && nfcReader.isEnabled) { Text("Activează / preia") }
+        Button(
+            onClick = onConnectNew,
+            enabled = canScan,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Activează senzor nou")
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onRecoverPin, enabled = !scanning && nfcReader.isEnabled) { Text("Recuperează PIN") }
-            OutlinedButton(onClick = onForceA0, enabled = !scanning && nfcReader.isEnabled) { Text("A0") }
-            OutlinedButton(onClick = onForceA8, enabled = !scanning && nfcReader.isEnabled) { Text("A8") }
+        FilledTonalButton(
+            onClick = onConnectExisting,
+            enabled = !scanning && (hasSavedSession || nfcReader.isEnabled),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Conectare la senzor existent")
         }
         AnimatedVisibility(scanning) {
-            OutlinedButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Anulează") }
+            FilledTonalButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+                Text("Anulează")
+            }
         }
+    }
+}
+
+@Composable
+private fun WearTakeoverCard(
+    session: ImportedSession?,
+    enabled: Boolean,
+    busy: Boolean,
+    message: String?,
+    error: String?,
+    onToggle: (Boolean) -> Unit,
+) {
+    SectionCard("Ceas") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text("Ceasul preia conexiunea")
+                Text(
+                    if (session == null) {
+                        "Conectează sau salvează întâi un senzor."
+                    } else {
+                        "Telefonul cedează BLE înainte să pornească ceasul."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onToggle,
+                enabled = session != null && !busy,
+            )
+        }
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        message?.let { MessageBox(it, false) }
+        error?.let { MessageBox(it, true) }
     }
 }
 
@@ -428,7 +493,7 @@ private fun SavedSensorCard(session: ImportedSession?, patchInfo: Libre3NfcPatch
             InfoRow("BLE name", session.bleDeviceName ?: "--")
             InfoRow("PIN", session.blePin.toHex())
             InfoRow("serial", session.serial ?: "--")
-            InfoRow("Phase 5", "nu se cache-uiește")
+            InfoRow("Phase 5", "se derivează local")
         }
         patchInfo?.let {
             HorizontalDivider()
@@ -436,85 +501,6 @@ private fun SavedSensorCard(session: ImportedSession?, patchInfo: Libre3NfcPatch
             InfoRow("fw", it.firmwareVersion)
             InfoRow("warmup", "${it.warmupMinutes} min")
         }
-    }
-}
-
-@Composable
-private fun RecoveryCard(
-    email: String,
-    password: String,
-    onEmail: (String) -> Unit,
-    onPassword: (String) -> Unit,
-    loading: Boolean,
-    message: String?,
-    error: String?,
-    phase5RawKey: String,
-    onPhase5RawKey: (String) -> Unit,
-    hasSavedSession: Boolean,
-    onFetchAccount: () -> Unit,
-    onSavePhase5: () -> Unit,
-    onCandidate: () -> Unit,
-) {
-    SectionCard("Recuperare") {
-        OutlinedTextField(email, onEmail, label = { Text("LibreView email") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(
-            value = password,
-            onValueChange = onPassword,
-            label = { Text("LibreView parolă") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        FilledTonalButton(onClick = onFetchAccount, enabled = !loading && email.isNotBlank() && password.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-            Text(if (loading) "Conectare..." else "Ia ID din LibreView")
-        }
-        HorizontalDivider()
-        Text("Phase 5", fontWeight = FontWeight.Bold)
-        Button(onClick = onCandidate, enabled = hasSavedSession, modifier = Modifier.fillMaxWidth()) {
-            Text("Derivă Phase 5 pe dispozitiv")
-        }
-        OutlinedTextField(
-            value = phase5RawKey,
-            onValueChange = onPhase5RawKey,
-            label = { Text("Debug: Phase 5 raw key") },
-            supportingText = { Text("Opțional: 32 caractere hex.") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        FilledTonalButton(onClick = onSavePhase5, enabled = hasSavedSession && phase5RawKey.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-            Text("Import Phase 5 dezactivat")
-        }
-        message?.let { MessageBox(it, false) }
-        error?.let { MessageBox(it, true) }
-    }
-}
-
-@Composable
-private fun WearHandoffCard(
-    session: ImportedSession?,
-    busy: Boolean,
-    message: String?,
-    error: String?,
-    onSendConfig: () -> Unit,
-    onHandoff: () -> Unit,
-    onReturnToPhone: () -> Unit,
-) {
-    SectionCard("Wear OS") {
-        Text(
-            "Ceasul primește datele de conectare și stabilește singur BLE cu senzorul. " +
-                "La preluare, telefonul oprește conexiunea înainte să pornească ceasul.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilledTonalButton(onClick = onSendConfig, enabled = session != null && !busy) { Text("Trimite configurarea") }
-            Button(onClick = onHandoff, enabled = session != null && !busy) { Text("Ceasul preia") }
-        }
-        OutlinedButton(onClick = onReturnToPhone, enabled = session != null && !busy, modifier = Modifier.fillMaxWidth()) {
-            Text("Revino pe telefon")
-        }
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        message?.let { MessageBox(it, false) }
-        error?.let { MessageBox(it, true) }
     }
 }
 
@@ -532,10 +518,17 @@ private fun requiredPermissions(): Array<String> {
     return perms.toTypedArray()
 }
 
-private fun receiverIdStatus(input: String, accountlessUniqueId: String): String {
+private fun receiverIdStatus(
+    input: String,
+    accountlessUniqueId: String,
+    libreViewConfigured: Boolean,
+): String {
     val identity = Libre3ReceiverID.fromNfcIdentityInput(input)
+    val accountless = Libre3ReceiverID.accountless(accountlessUniqueId)
     return if (identity == null) {
-        "ID fallback: ${Libre3ReceiverID.accountless(accountlessUniqueId).unsignedValue}"
+        "ID fallback: ${accountless.unsignedValue}"
+    } else if (identity.value == accountless.value && libreViewConfigured) {
+        "ID local; LibreView actualizează Account ID la conectare"
     } else {
         "NFC: ${nfcIdentityDisplay(identity)}"
     }
@@ -553,4 +546,7 @@ private fun libreCrAccountlessUniqueId(context: Context): String {
     return created
 }
 
+private const val NEW_SENSOR_WATCH_STOP_TIMEOUT_MS = 2_000L
+private const val HANDOFF_WATCH_STOP_TIMEOUT_MS = 2_000L
+private const val HANDOFF_BLE_RELEASE_DELAY_MS = 3_000L
 private const val LIBRECR_ACCOUNTLESS_UNIQUE_ID_KEY = "LibreCRAccountlessUniqueID"

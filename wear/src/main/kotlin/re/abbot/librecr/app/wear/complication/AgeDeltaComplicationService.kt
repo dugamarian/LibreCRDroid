@@ -19,6 +19,7 @@ import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.log.GlucoseLatencyTracer
+import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 
 class AgeDeltaComplicationService : SuspendingComplicationDataSourceService() {
     override fun onCreate() {
@@ -33,11 +34,12 @@ class AgeDeltaComplicationService : SuspendingComplicationDataSourceService() {
         // In-memory live value first (instant); DataStore only when the service isn't running (cold).
         val reading = LibreCR.manager.glucose.value?.toLastGlucose() ?: LibreCR.store.loadLastGlucose()
         val appearance = LibreCR.appearance.current()
+        val attention = LibreCR.store.loadSensorStatus()?.attention ?: Libre3SensorAttention.None
         // The OS asked us for fresh complication data — i.e. the watch face / AOD is about
         // to repaint with this reading. Gap to STORE_UPDATED is the complication-refresh throttle.
         reading?.let { GlucoseLatencyTracer.mark(it.lifeCount, GlucoseLatencyTracer.Stage.AOD_UPDATED) }
         BleLog.log("WATCH_COMPLICATION_REQUEST lc=${reading?.lifeCount ?: -1} service=AgeDeltaComplicationService type=${request.complicationType}")
-        return buildData(request.complicationType, reading, tapAction(), appearance)
+        return buildData(request.complicationType, reading, tapAction(), appearance, attention)
     }
 
     private fun buildData(
@@ -45,10 +47,13 @@ class AgeDeltaComplicationService : SuspendingComplicationDataSourceService() {
         reading: SensorStateStore.LastGlucose?,
         tapAction: PendingIntent?,
         appearance: WearAppearanceSettings = WearAppearanceSettings(),
+        attention: Libre3SensorAttention = Libre3SensorAttention.None,
     ): ComplicationData {
-        val image = Icon.createWithBitmap(GlucoseComplicationRenderer.buildAgeDeltaBitmap(this, reading, appearance))
+        val image = Icon.createWithBitmap(
+            GlucoseComplicationRenderer.buildAgeDeltaBitmap(this, reading, appearance, attention = attention),
+        )
         val description = PlainComplicationText.Builder(
-            GlucoseComplicationRenderer.contentDescription("Glucose time and delta per minute", reading)
+            GlucoseComplicationRenderer.contentDescription("Glucose time and delta per minute", reading, attention)
         ).build()
         return when (type) {
             ComplicationType.PHOTO_IMAGE -> PhotoImageComplicationData.Builder(image, description)

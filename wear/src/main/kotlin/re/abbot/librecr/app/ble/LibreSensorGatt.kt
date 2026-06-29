@@ -41,12 +41,19 @@ object LibreSensorGatt {
     )
 
     /**
-     * Data-plane notify characteristics that need a CCCD off→on re-arm after
-     * Phase 6 before the sensor starts broadcasting. Order matches Swift
-     * `dataPlaneNotifying`.
+     * Data-plane notifications enabled once after Phase 6. Android also keeps
+     * historical and clinical enabled because both are consumed for backfill.
      */
     val dataPlaneNotifying = listOf(
         PATCH_CONTROL, EVENT_LOG, HISTORIC_DATA, CLINICAL_DATA,
         FACTORY_DATA, GLUCOSE_DATA, PATCH_STATUS,
+    )
+
+    /**
+     * The only notification characteristics needed before the security
+     * handshake. Data-plane CCCDs are deliberately left disabled until Phase 6.
+     */
+    val handshakeNotifying = listOf(
+        SEC_CERT_DATA, SEC_CHALLENGE_DATA, SEC_COMMAND_RESPONSE,
     )
 }

@@ -34,16 +34,22 @@ class ClinicalReadingRecord(plaintext: ByteArray) {
     val historicGlucose: Libre3GlucoseValueStatus get() = Libre3GlucoseValueStatus.fromRaw(historicGlucoseRaw)
     val historicGlucoseMgDL: Int? get() = historicGlucose.displayMgDL
 
-    /** Best-effort estimate of the lifeCount that historicGlucoseRaw represents. */
+    /**
+     * Best-effort estimate of the lifeCount represented by historicGlucoseRaw.
+     * Abbott's fixed protocol parameters are a 17-minute finalization latency
+     * and a 5-minute historical life-count interval.
+     */
     val historicLifeCountEstimate: Int?
         get() {
-            val lagged = lifeCount - 17
+            val lagged = lifeCount - HISTORIC_POINT_LATENCY_MINUTES
             if (lagged < 0) return null
-            return lagged - (lagged % 5)
+            return lagged - (lagged % HISTORIC_LIFECOUNT_INTERVAL_MINUTES)
         }
 
     companion object {
         const val PLAINTEXT_SIZE = 14
+        const val HISTORIC_POINT_LATENCY_MINUTES = 17
+        const val HISTORIC_LIFECOUNT_INTERVAL_MINUTES = 5
     }
 }
 

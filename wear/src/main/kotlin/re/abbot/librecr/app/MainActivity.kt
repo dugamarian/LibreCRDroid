@@ -234,7 +234,12 @@ private fun requiredPermissions(): Array<String> {
 
 /** The AOD-style trend arrow (shared [TrendArrowShape] geometry) drawn as a Compose vector. */
 @Composable
-private fun TrendArrow(trend: String?, color: Color, size: Dp, modifier: Modifier = Modifier) {
+private fun TrendArrow(
+    trend: String?,
+    color: Color,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
     Canvas(modifier.size(size)) {
         val rotation = TrendArrowShape.rotationDegrees(trend) ?: return@Canvas
         val side = this.size.minDimension

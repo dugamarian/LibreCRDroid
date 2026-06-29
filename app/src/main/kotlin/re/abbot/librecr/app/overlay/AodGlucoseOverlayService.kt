@@ -1,7 +1,6 @@
 package re.abbot.librecr.app.overlay
 
 import android.accessibilityservice.AccessibilityService
-import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -35,6 +34,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.R
+import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.app.ble.GlucoseUi
 import re.abbot.librecr.protocol.TrendArrowShape
 import re.abbot.librecr.app.data.SensorStateStore
@@ -52,10 +52,15 @@ class AodGlucoseOverlayService : AccessibilityService() {
     private var receiverRegistered = false
     private var prefsRegistered = false
     private val history = ArrayDeque<GlucoseUi>()
-    private var lastReading: GlucoseUi? = null
+    private var localReading: GlucoseUi? = null
+    private var storedReading: GlucoseUi? = null
     private var burnInIndex = 0
     private var currentPosition = AodSettings.POSITION_TOP
     private lateinit var prefs: SharedPreferences
+
+    private val currentReading: GlucoseUi?
+        get() = localReading?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs) }
+            ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         val settings = AodSettings.load(this)
@@ -66,6 +71,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (aodView != null) {
+                aodView?.setReading(currentReading, history.toList())
                 advanceBurnIn()
                 updateLayoutPosition()
                 handler.postDelayed(this, PERIODIC_REFRESH_MS)
@@ -156,16 +162,14 @@ class AodGlucoseOverlayService : AccessibilityService() {
     private fun observeGlucose() {
         scope.launch {
             LibreCR.manager.glucose.collectLatest { reading ->
+                localReading = reading
                 acceptReading(reading)
             }
         }
         scope.launch {
             LibreCR.store.lastGlucoseFlow.collectLatest { last ->
-                acceptReading(
-                    last?.let {
-                        it.toGlucoseUi()
-                    },
-                )
+                storedReading = last?.toGlucoseUi()
+                acceptReading(storedReading)
             }
         }
         scope.launch {
@@ -177,23 +181,24 @@ class AodGlucoseOverlayService : AccessibilityService() {
 
     private fun acceptReading(reading: GlucoseUi?) {
         if (reading == null) {
-            lastReading = history.lastOrNull()
-            aodView?.setReading(lastReading, history.toList())
+            publishReading()
             return
         }
-        lastReading = reading
         if (reading.mgDL != null && history.lastOrNull()?.receivedAtMs != reading.receivedAtMs) {
             history.addLast(reading)
             while (history.size > MAX_HISTORY_POINTS) history.removeFirst()
         }
-        aodView?.setReading(reading, history.toList())
+        publishReading()
     }
 
     private fun replaceHistory(readings: List<GlucoseUi>) {
         history.clear()
         readings.takeLast(MAX_HISTORY_POINTS).forEach { history.addLast(it) }
-        lastReading = history.lastOrNull()
-        aodView?.setReading(lastReading, history.toList())
+        publishReading()
+    }
+
+    private fun publishReading() {
+        aodView?.setReading(currentReading, history.toList())
     }
 
     private fun refreshVisibility() {
@@ -203,10 +208,8 @@ class AodGlucoseOverlayService : AccessibilityService() {
             return
         }
         val display = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)
-        val isDoze = display?.state == Display.STATE_DOZE || display?.state == Display.STATE_DOZE_SUSPEND
-        val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-        val locked = keyguard.isDeviceLocked || keyguard.isKeyguardLocked
-        if (isDoze || locked) showOverlay(settings) else hideOverlay()
+        val isAod = display?.state == Display.STATE_DOZE || display?.state == Display.STATE_DOZE_SUSPEND
+        if (isAod) showOverlay(settings) else hideOverlay()
     }
 
     private fun showOverlay(settings: AodSettings) {
@@ -215,7 +218,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
             val regular = ResourcesCompat.getFont(this, R.font.google_sans_rounded_regular) ?: Typeface.DEFAULT
             val view = AodGlucoseView(this, bold, regular).apply {
                 setAodSettings(settings)
-                setReading(lastReading, history.toList())
+                setReading(currentReading, history.toList())
             }
             val lp = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -357,6 +360,7 @@ private fun SensorStateStore.LastGlucose.toGlucoseUi(): GlucoseUi =
         lifeCount = lifeCount,
         usable = true,
         receivedAtMs = receivedAtMs,
+        deltaMgDlPerMin = deltaMgDlPerMin,
     )
 
 private class AodGlucoseView(
@@ -442,15 +446,16 @@ private class AodGlucoseView(
         canvas.drawText("LibreCRDroid", pad + 14f.dpToPx(context), headerBaseline, labelPaint)
         canvas.drawText(age, width - pad - labelPaint.measureText(age), headerBaseline, labelPaint)
 
-        val glucose = reading?.mgDL?.toString() ?: "--"
+        val glucose = reading?.mgDL?.toString() ?: "SE"
         val unit = "mg/dL"
         val valueBaseline = headerBaseline + 58f.dpToPx(context) * settings.textScale.coerceIn(0.75f, 2.2f)
         val rowCenterY = valueBaseline + (valuePaint.ascent() + valuePaint.descent()) / 2f
         val showUnit = settings.showSecondary
-        val arrowSize = if (settings.showArrow) 34f.dpToPx(context) * settings.arrowScale * settings.textScale.coerceIn(0.75f, 2f) else 0f
+        val showArrow = settings.showArrow && TrendArrowShape.hasArrow(reading?.trend)
+        val arrowSize = if (showArrow) 34f.dpToPx(context) * settings.arrowScale * settings.textScale.coerceIn(0.75f, 2f) else 0f
         val delta = deltaText(history)
         val unitWidth = if (showUnit) metaPaint.measureText(unit) + 9f.dpToPx(context) else 0f
-        val arrowChipWidth = if (settings.showArrow) arrowSize + 18f.dpToPx(context) else 0f
+        val arrowChipWidth = if (showArrow) arrowSize + 18f.dpToPx(context) else 0f
         val deltaChipWidth = delta?.let { metaPaint.measureText(it) + 20f.dpToPx(context) + 7f.dpToPx(context) } ?: 0f
         val groupWidth = valuePaint.measureText(glucose) + unitWidth + arrowChipWidth + deltaChipWidth
         var x = pad
@@ -466,13 +471,19 @@ private class AodGlucoseView(
             canvas.drawText(unit, x, unitBaseline, metaPaint)
             x += metaPaint.measureText(unit) + 9f.dpToPx(context)
         }
-        if (settings.showArrow) {
+        if (showArrow) {
             val arrowChipHeight = arrowSize + 12f.dpToPx(context)
             val chipTop = rowCenterY - arrowChipHeight / 2f + settings.arrowVerticalOffsetDp.dpToPx(context)
             chipRect.set(x, chipTop, x + arrowSize + 18f.dpToPx(context), chipTop + arrowSize + 12f.dpToPx(context))
             chipPaint.color = Color.argb((42f * burnInAlpha).roundToInt(), 255, 255, 255)
             canvas.drawRoundRect(chipRect, chipRect.height() / 2f, chipRect.height() / 2f, chipPaint)
-            drawArrow(canvas, reading?.trend, chipRect.left + 9f.dpToPx(context), chipRect.top + 6f.dpToPx(context), arrowSize)
+            drawArrow(
+                canvas,
+                reading?.trend,
+                chipRect.left + 9f.dpToPx(context),
+                chipRect.top + 6f.dpToPx(context),
+                arrowSize,
+            )
             x = chipRect.right + 7f.dpToPx(context)
         }
         delta?.let {
@@ -533,7 +544,13 @@ private class AodGlucoseView(
         canvas.drawPath(path, chartPaint)
     }
 
-    private fun drawArrow(canvas: Canvas, trend: String?, left: Float, top: Float, size: Float) {
+    private fun drawArrow(
+        canvas: Canvas,
+        trend: String?,
+        left: Float,
+        top: Float,
+        size: Float,
+    ) {
         val rotation = TrendArrowShape.rotationDegrees(trend) ?: return
         val cx = left + size / 2f
         val cy = top + size / 2f

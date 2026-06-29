@@ -274,12 +274,6 @@ private fun GlucoseChartCanvas(
             if (gridTime < startMs) gridTime += timeStepMs
             while (gridTime <= clampedEndMs) {
                 val gridX = x(gridTime)
-                drawLine(
-                    color = gridColor.copy(alpha = 0.72f),
-                    start = Offset(gridX, plotTop),
-                    end = Offset(gridX, plotBottom),
-                    strokeWidth = 1.dp.toPx(),
-                )
                 val text = timeLabel(gridTime, clampedWindowMs)
                 val layout = measurer.measure(text, labelStyle)
                 val labelX = (gridX - layout.size.width / 2f)

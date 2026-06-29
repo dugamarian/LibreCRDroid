@@ -14,7 +14,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
+import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.app.stats.GlucoseSample
+import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
+import re.abbot.librecr.protocol.dataplane.Libre3SensorError
 import re.abbot.librecr.protocol.dataplane.SensorLifecycle
 import re.abbot.librecr.protocol.hexToBytes
 import re.abbot.librecr.protocol.toHex
@@ -33,6 +36,7 @@ class SensorStateStore(
 ) {
     private val keySession = stringPreferencesKey("session_json")
     private val keyAutoConnect = booleanPreferencesKey("auto_connect")
+    private val keyWatchTakeover = booleanPreferencesKey("watch_takeover")
     private val keyLastLifeCount = intPreferencesKey("last_glucose_lifecount")
     private val keyLastMgDL = intPreferencesKey("last_glucose_mgdl")
     private val keyLastTrend = stringPreferencesKey("last_glucose_trend")
@@ -43,6 +47,9 @@ class SensorStateStore(
     private val keyLifecycleLifeCount = intPreferencesKey("sensor_lifecycle_lifecount")
     private val keyLifecycleObservedAtMs = longPreferencesKey("sensor_lifecycle_observed_at_ms")
     private val keyWarmupStartedAtMs = longPreferencesKey("sensor_warmup_started_at_ms")
+    private val keySensorErrorData = intPreferencesKey("sensor_error_data")
+    private val keySensorPatchState = intPreferencesKey("sensor_patch_state")
+    private val keySensorStatusObservedAtMs = longPreferencesKey("sensor_status_observed_at_ms")
 
     data class LastGlucose(
         val lifeCount: Int,
@@ -60,6 +67,21 @@ class SensorStateStore(
     data class SensorWarmupSnapshot(
         val startedAtMs: Long,
     )
+
+    /**
+     * Last patch-status error/state, kept so the phone UI + watch complications can surface
+     * sensor errors (insertion failure, ended, replace, or an unknown "sensor error" code).
+     * The raw bytes are stored and the product-facing [attention]/[error] are derived from the
+     * protocol's single source of truth, so the mapping never drifts.
+     */
+    data class SensorStatusSnapshot(
+        val errorData: Int,
+        val patchState: Int,
+        val observedAtMs: Long,
+    ) {
+        val attention: Libre3SensorAttention get() = Libre3SensorAttention.from(errorData, patchState)
+        val error: Libre3SensorError get() = Libre3SensorError.fromCode(errorData)
+    }
 
     /** Last accepted glucose (local or relayed from the watch), for UI + complications. */
     val lastGlucoseFlow: Flow<LastGlucose?> = context.dataStore.data.map { prefs ->
@@ -91,6 +113,12 @@ class SensorStateStore(
         SensorWarmupSnapshot(startedAtMs)
     }
 
+    val sensorStatusFlow: Flow<SensorStatusSnapshot?> = context.dataStore.data.map { prefs ->
+        val errorData = prefs[keySensorErrorData] ?: return@map null
+        val patchState = prefs[keySensorPatchState] ?: return@map null
+        SensorStatusSnapshot(errorData, patchState, prefs[keySensorStatusObservedAtMs] ?: 0L)
+    }
+
     val sessionFlow: Flow<ImportedSession?> = context.dataStore.data.map { prefs ->
         prefs[keySession]?.let { runCatching { ImportedSession.fromJson(it) }.getOrNull() }
     }
@@ -99,15 +127,46 @@ class SensorStateStore(
         prefs[keyAutoConnect] ?: false
     }
 
+    val watchTakeoverFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[keyWatchTakeover] ?: false
+    }
+
     suspend fun loadSession(): ImportedSession? = sessionFlow.first()
 
     suspend fun autoConnectEnabled(): Boolean = autoConnectFlow.first()
 
-    suspend fun saveSession(session: ImportedSession) {
-        context.dataStore.edit {
-            it[keySession] = session.withoutTransientCrypto().toJson()
-            it.remove(keyLifecycleLifeCount)
-            it.remove(keyLifecycleObservedAtMs)
+    suspend fun saveSession(
+        session: ImportedSession,
+        preserveCachedKeyWhenKeyless: Boolean = false,
+    ) {
+        context.dataStore.edit { prefs ->
+            val previousSession = prefs.storedSession()
+            applyCachedKeyOnSessionChange(prefs, session, preserveCachedKeyWhenKeyless)
+            prefs[keySession] = session.withoutTransientCrypto().toJson()
+            prefs.remove(keyLifecycleLifeCount)
+            prefs.remove(keyLifecycleObservedAtMs)
+            if (!previousSession.isSameSensorAs(session)) prefs.clearCurrentGlucose()
+            prefs.clearSensorStatus()
+        }
+    }
+
+    /**
+     * Reconcile the separate cached first-pair key with an incoming session:
+     *  - a session carrying a 16-byte key (imported from external JSON / Swift `phase5RawKey`) sets it;
+     *  - a key-less session drops any cached key, because the caller is replacing provisioning;
+     *  - a metadata-only same-address update can explicitly preserve the locally-derived key.
+     */
+    private fun applyCachedKeyOnSessionChange(
+        prefs: MutablePreferences,
+        session: ImportedSession,
+        preserveCachedKeyWhenKeyless: Boolean = false,
+    ) {
+        val previousSession = prefs.storedSession()
+        val importedKey = session.phase5RawKey?.takeIf { it.size == 16 }
+        when {
+            importedKey != null -> prefs[keyCachedPhase5RawKey] = importedKey.toHex()
+            preserveCachedKeyWhenKeyless && previousSession.isSameSensorAs(session) -> Unit
+            else -> prefs.remove(keyCachedPhase5RawKey)
         }
     }
 
@@ -117,9 +176,13 @@ class SensorStateStore(
         warmupStartedAtMs: Long = System.currentTimeMillis(),
     ) {
         context.dataStore.edit {
+            val previousSession = it.storedSession()
+            applyCachedKeyOnSessionChange(it, session)
             it[keySession] = session.withoutTransientCrypto().toJson()
             it.remove(keyLifecycleLifeCount)
             it.remove(keyLifecycleObservedAtMs)
+            if (!previousSession.isSameSensorAs(session)) it.clearCurrentGlucose()
+            it.clearSensorStatus()
             if (startsWarmup) {
                 it[keyWarmupStartedAtMs] = warmupStartedAtMs
             } else {
@@ -132,13 +195,20 @@ class SensorStateStore(
         context.dataStore.edit { it[keyAutoConnect] = enabled }
     }
 
+    suspend fun setWatchTakeoverEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[keyWatchTakeover] = enabled }
+    }
+
     suspend fun clearSession() {
         context.dataStore.edit {
             it.remove(keySession)
             it.remove(keyCachedPhase5RawKey)
+            it[keyWatchTakeover] = false
             it.remove(keyLifecycleLifeCount)
             it.remove(keyLifecycleObservedAtMs)
             it.remove(keyWarmupStartedAtMs)
+            it.clearCurrentGlucose()
+            it.clearSensorStatus()
         }
     }
 
@@ -165,12 +235,24 @@ class SensorStateStore(
 
     suspend fun loadLastGlucose(): LastGlucose? = lastGlucoseFlow.first()
 
+    suspend fun clearCurrentGlucoseIfStale(nowMs: Long = System.currentTimeMillis()): Boolean {
+        var cleared = false
+        context.dataStore.edit {
+            val receivedAtMs = it[keyLastReceivedAtMs] ?: return@edit
+            if (!isFreshGlucose(receivedAtMs, nowMs)) {
+                it.clearCurrentGlucose()
+                cleared = true
+            }
+        }
+        return cleared
+    }
+
     suspend fun saveLastGlucose(lifeCount: Int, mgDL: Int) {
         saveGlucoseReading(lifeCount, mgDL, "UNKNOWN", System.currentTimeMillis())
     }
 
     suspend fun saveGlucoseReading(lifeCount: Int, mgDL: Int, trend: String, receivedAtMs: Long) {
-        val previous = loadLastGlucose()
+        val previous = loadLastGlucose()?.takeIf { isFreshGlucose(it.receivedAtMs, receivedAtMs) }
         val delta = previous
             ?.takeIf { it.lifeCount != lifeCount && it.receivedAtMs in 1 until receivedAtMs }
             ?.let { (mgDL - it.mgDL).toDouble() / ((receivedAtMs - it.receivedAtMs).toDouble() / 60_000.0) }
@@ -196,6 +278,43 @@ class SensorStateStore(
             it[keyLifecycleObservedAtMs] = observedAtMs
             it.clearWarmupIfComplete(lifeCountMinutes)
         }
+    }
+
+    suspend fun loadSensorStatus(): SensorStatusSnapshot? = sensorStatusFlow.first()
+
+    suspend fun saveSensorStatus(errorData: Int, patchState: Int, observedAtMs: Long = System.currentTimeMillis()) {
+        context.dataStore.edit {
+            it[keySensorErrorData] = errorData
+            it[keySensorPatchState] = patchState
+            it[keySensorStatusObservedAtMs] = observedAtMs
+        }
+    }
+
+    private fun MutablePreferences.clearSensorStatus() {
+        remove(keySensorErrorData)
+        remove(keySensorPatchState)
+        remove(keySensorStatusObservedAtMs)
+    }
+
+    private fun MutablePreferences.clearCurrentGlucose() {
+        remove(keyLastLifeCount)
+        remove(keyLastMgDL)
+        remove(keyLastTrend)
+        remove(keyLastReceivedAtMs)
+        remove(keyLastDeltaMgDlPerMin)
+    }
+
+    private fun MutablePreferences.storedSession(): ImportedSession? =
+        this[keySession]?.let { runCatching { ImportedSession.fromJson(it) }.getOrNull() }
+
+    private fun ImportedSession?.isSameSensorAs(next: ImportedSession): Boolean {
+        val previous = this ?: return false
+        val previousSerial = previous.serial?.takeIf { it.isNotBlank() }
+        val nextSerial = next.serial?.takeIf { it.isNotBlank() }
+        if (previousSerial != null && nextSerial != null) {
+            return previousSerial.equals(nextSerial, ignoreCase = true)
+        }
+        return previous.bleAddress.equals(next.bleAddress, ignoreCase = true)
     }
 
     /**
@@ -230,19 +349,21 @@ class SensorStateStore(
      */
     suspend fun saveRemoteGlucose(reading: LastGlucose): Boolean {
         val current = loadLastGlucose()
-        if (current != null && reading.lifeCount < current.lifeCount) {
-            context.dataStore.edit {
-                it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
+        if (current != null && isFreshGlucose(current.receivedAtMs)) {
+            if (reading.lifeCount < current.lifeCount) {
+                context.dataStore.edit {
+                    it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
+                }
+                history.append(reading.mgDL, reading.receivedAtMs)
+                return false
             }
-            history.append(reading.mgDL, reading.receivedAtMs)
-            return false
-        }
-        if (current != null && reading.lifeCount == current.lifeCount) {
-            context.dataStore.edit {
-                it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
+            if (reading.lifeCount == current.lifeCount) {
+                context.dataStore.edit {
+                    it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
+                }
+                history.append(reading.mgDL, reading.receivedAtMs)
+                return false
             }
-            history.append(reading.mgDL, reading.receivedAtMs)
-            return false
         }
         context.dataStore.edit {
             it[keyLastLifeCount] = reading.lifeCount

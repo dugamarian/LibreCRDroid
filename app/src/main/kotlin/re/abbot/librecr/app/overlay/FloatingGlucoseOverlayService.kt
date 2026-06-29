@@ -25,11 +25,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
+import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.protocol.TrendArrowShape
 import re.abbot.librecr.app.ble.GlucoseUi
 import re.abbot.librecr.app.data.SensorStateStore
@@ -45,7 +47,13 @@ class FloatingGlucoseOverlayService : Service() {
     private var overlayView: FloatingGlucoseView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private val history = ArrayDeque<GlucoseUi>()
+    private var localReading: GlucoseUi? = null
+    private var storedReading: GlucoseUi? = null
     private lateinit var prefs: SharedPreferences
+
+    private val currentReading: GlucoseUi?
+        get() = localReading?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs) }
+            ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         val settings = FloatingSettings.load(this)
@@ -129,7 +137,7 @@ class FloatingGlucoseOverlayService : Service() {
 
         val view = FloatingGlucoseView(this, bold, regular).apply {
             setFloatingSettings(settings)
-            setReading(history.lastOrNull(), history.toList())
+            setReading(currentReading, history.toList())
             setOnClickListener { openApp() }
             setDragListener { dx, dy, finished ->
                 val lp = this@FloatingGlucoseOverlayService.layoutParams ?: return@setDragListener
@@ -197,16 +205,14 @@ class FloatingGlucoseOverlayService : Service() {
     private fun observeGlucose() {
         scope.launch {
             LibreCR.manager.glucose.collectLatest { reading ->
+                localReading = reading
                 acceptReading(reading)
             }
         }
         scope.launch {
             LibreCR.store.lastGlucoseFlow.collectLatest { last ->
-                acceptReading(
-                    last?.let {
-                        it.toGlucoseUi()
-                    },
-                )
+                storedReading = last?.toGlucoseUi()
+                acceptReading(storedReading)
             }
         }
         scope.launch {
@@ -214,24 +220,34 @@ class FloatingGlucoseOverlayService : Service() {
                 replaceHistory(storedHistory.map { it.toGlucoseUi() })
             }
         }
+        scope.launch {
+            while (true) {
+                delay(FRESHNESS_REFRESH_MS)
+                publishReading()
+            }
+        }
     }
 
     private fun acceptReading(reading: GlucoseUi?) {
         if (reading == null) {
-            overlayView?.setReading(history.lastOrNull(), history.toList())
+            publishReading()
             return
         }
-        if (reading?.mgDL != null && history.lastOrNull()?.receivedAtMs != reading.receivedAtMs) {
+        if (reading.mgDL != null && history.lastOrNull()?.receivedAtMs != reading.receivedAtMs) {
             history.addLast(reading)
             while (history.size > MAX_HISTORY_POINTS) history.removeFirst()
         }
-        overlayView?.setReading(reading, history.toList())
+        publishReading()
     }
 
     private fun replaceHistory(readings: List<GlucoseUi>) {
         history.clear()
         readings.takeLast(MAX_HISTORY_POINTS).forEach { history.addLast(it) }
-        overlayView?.setReading(history.lastOrNull(), history.toList())
+        publishReading()
+    }
+
+    private fun publishReading() {
+        overlayView?.setReading(currentReading, history.toList())
     }
 
     private fun openApp() {
@@ -243,6 +259,7 @@ class FloatingGlucoseOverlayService : Service() {
 
     companion object {
         private const val MAX_HISTORY_POINTS = 48
+        private const val FRESHNESS_REFRESH_MS = 30_000L
 
         fun start(context: Context): Boolean {
             if (!canDrawOverlays(context)) return false
@@ -274,6 +291,7 @@ private fun SensorStateStore.LastGlucose.toGlucoseUi(): GlucoseUi =
         lifeCount = lifeCount,
         usable = true,
         receivedAtMs = receivedAtMs,
+        deltaMgDlPerMin = deltaMgDlPerMin,
     )
 
 internal open class FloatingGlucoseView(
@@ -339,8 +357,9 @@ internal open class FloatingGlucoseView(
         val primary = reading?.mgDL?.toString() ?: "---"
         val secondary = if (currentSettings.showSecondary) "mg/dL" else ""
         val delta = deltaText(history, includeSymbol = false).orEmpty()
-        val arrowWidth = if (currentSettings.showArrow) arrowSize() else 0f
-        val arrowGap = if (currentSettings.showArrow) dp(1.5f) else 0f
+        val showArrow = currentSettings.showArrow && TrendArrowShape.hasArrow(reading?.trend)
+        val arrowWidth = if (showArrow) arrowSize() else 0f
+        val arrowGap = if (showArrow) dp(1.5f) else 0f
         val deltaGap = if (delta.isNotEmpty()) dp(2f) else 0f
         val secondaryGap = if (secondary.isNotEmpty()) dp(3f) else 0f
         val gap = if (currentSettings.dynamicIsland) {
@@ -361,7 +380,7 @@ internal open class FloatingGlucoseView(
     }
 
     protected fun drawFloatingContent(canvas: Canvas, bounds: RectF, aod: AodSettings? = null) {
-        val primary = reading?.mgDL?.toString() ?: "---"
+        val primary = reading?.mgDL?.toString() ?: "SE"
         val baseY = bounds.centerY() - (valuePaint.ascent() + valuePaint.descent()) / 2f
         val leftPadding = dp(6f)
         val islandGap = if (currentSettings.dynamicIsland && aod == null) {
@@ -372,7 +391,8 @@ internal open class FloatingGlucoseView(
         var x = bounds.left + leftPadding + islandGap / 2f
         canvas.drawText(primary, x, baseY, valuePaint)
         x += valuePaint.measureText(primary) + dp(1.5f)
-        val showArrow = aod?.showArrow ?: currentSettings.showArrow
+        val showArrow = (aod?.showArrow ?: currentSettings.showArrow) &&
+            TrendArrowShape.hasArrow(reading?.trend)
         if (showArrow) {
             val size = arrowSize() * (aod?.arrowScale ?: 1f)
             val arrowTop = bounds.centerY() - size / 2f + (aod?.arrowVerticalOffsetDp ?: 0f).dpToPx(context)
@@ -472,7 +492,14 @@ internal open class FloatingGlucoseView(
         canvas.drawRoundRect(rect.insetCopy(dp(0.5f)), radius, radius, strokePaint)
     }
 
-    private fun drawTrendArrow(canvas: Canvas, trend: String?, left: Float, top: Float, size: Float, color: Int) {
+    private fun drawTrendArrow(
+        canvas: Canvas,
+        trend: String?,
+        left: Float,
+        top: Float,
+        size: Float,
+        color: Int,
+    ) {
         val rotation = TrendArrowShape.rotationDegrees(trend) ?: return
         arrowPaint.color = color
         val cx = left + size / 2f

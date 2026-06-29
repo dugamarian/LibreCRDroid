@@ -17,9 +17,15 @@ object BleLog {
     private const val TAG = "LibreCR"
     private const val MAX_LINES = 2000
 
-    private val lines = ArrayDeque<String>()
-    private val _log = MutableStateFlow<List<String>>(emptyList())
-    val log: StateFlow<List<String>> = _log
+    private val phoneLines = ArrayDeque<String>()
+    private val watchLines = ArrayDeque<String>()
+
+    private val _phoneLog = MutableStateFlow<List<String>>(emptyList())
+    val phoneLog: StateFlow<List<String>> = _phoneLog
+
+    private val _watchLog = MutableStateFlow<List<String>>(emptyList())
+    val watchLog: StateFlow<List<String>> = _watchLog
+
     private val _enabled = MutableStateFlow(true)
     val enabled: StateFlow<Boolean> = _enabled
 
@@ -30,9 +36,23 @@ object BleLog {
         if (!_enabled.value) return
         val line = "${timeFmt.format(Date())} $message"
         Log.d(TAG, line)
-        lines.addLast(line)
-        while (lines.size > MAX_LINES) lines.removeFirst()
-        _log.value = lines.toList()
+        phoneLines.addLast(line)
+        while (phoneLines.size > MAX_LINES) phoneLines.removeFirst()
+        _phoneLog.value = phoneLines.toList()
+    }
+
+    /**
+     * Fold in a block of log lines pulled from another device (the watch) into the same viewer.
+     * Each incoming line already carries its own timestamp, so it is kept verbatim and only prefixed
+     * with [source] so it's visually distinct. Ingested regardless of [enabled] (it's a manual pull).
+     */
+    @Synchronized
+    fun ingestRemote(remoteLines: List<String>, source: String = "WATCH") {
+        if (remoteLines.isEmpty()) return
+        watchLines.addLast("──── $source log (${remoteLines.size} lines) @ ${timeFmt.format(Date())} ────")
+        for (l in remoteLines) watchLines.addLast("[$source] $l")
+        while (watchLines.size > MAX_LINES) watchLines.removeFirst()
+        _watchLog.value = watchLines.toList()
     }
 
     fun hex(data: ByteArray): String {
@@ -42,9 +62,15 @@ object BleLog {
     }
 
     @Synchronized
-    fun clear() {
-        lines.clear()
-        _log.value = emptyList()
+    fun clearPhone() {
+        phoneLines.clear()
+        _phoneLog.value = emptyList()
+    }
+
+    @Synchronized
+    fun clearWatch() {
+        watchLines.clear()
+        _watchLog.value = emptyList()
     }
 
     @Synchronized

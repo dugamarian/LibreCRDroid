@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Sensors
 import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +38,7 @@ fun SettingsScreen(onNavigate: (String) -> Unit, modifier: Modifier = Modifier) 
     val entries = listOf(
         SettingsEntry(Routes.SENSOR, R.string.title_sensor, R.string.set_sensor_s, Icons.Rounded.Sensors),
         SettingsEntry(Routes.ALARMS, R.string.title_alarms, R.string.set_alarms_s, Icons.Rounded.Notifications),
+        SettingsEntry(Routes.LIVE_UPDATES, R.string.title_live_updates, R.string.set_live_updates_s, Icons.Rounded.Update),
         SettingsEntry(Routes.CLOUD, R.string.title_cloud, R.string.set_cloud_s, Icons.Rounded.CloudUpload),
         SettingsEntry(Routes.FLOATING, R.string.title_floating, R.string.set_floating_s, Icons.Rounded.BubbleChart),
         SettingsEntry(Routes.AOD, R.string.title_aod, R.string.set_aod_s, Icons.Rounded.Bedtime),

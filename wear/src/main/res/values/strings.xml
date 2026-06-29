@@ -3,4 +3,5 @@
     <string name="wear_app_name">LibreCR Wear</string>
     <string name="complication_age_delta">Timp + delta/min</string>
     <string name="complication_trend_above_value">Trend deasupra valorii</string>
+    <string name="complication_date">Data</string>
 </resources>
