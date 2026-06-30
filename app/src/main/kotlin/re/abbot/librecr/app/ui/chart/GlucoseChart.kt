@@ -29,11 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -171,7 +170,6 @@ private fun GlucoseChartCanvas(
 ) {
     val glucoseColors = LocalGlucoseColors.current
     val targetColor = glucoseColors.inRange
-    val lineColor = MaterialTheme.colorScheme.onSurface
     val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val labelBackground = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
@@ -330,36 +328,35 @@ private fun GlucoseChartCanvas(
             val pointsToDraw = samples.filter {
                 it.atMs in (startMs - GAP_BREAK_MS)..(clampedEndMs + GAP_BREAK_MS)
             }
-            var path = Path()
-            var pathHasPoint = false
             var previous: GlucoseSample? = null
-
-            fun drawCurrentPath() {
-                if (!pathHasPoint) return
-                drawPath(
-                    path = path,
-                    color = lineColor,
-                    style = Stroke(
-                        width = 3.dp.toPx(),
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round,
-                    ),
-                )
-            }
+            val lineStrokeWidth = 3.dp.toPx()
 
             pointsToDraw.forEach { sample ->
-                val point = Offset(x(sample.atMs), y(sample.mgDl.toFloat()))
-                val gap = previous?.let { sample.atMs - it.atMs } ?: 0L
-                if (previous == null || gap > GAP_BREAK_MS) {
-                    drawCurrentPath()
-                    path = Path().apply { moveTo(point.x, point.y) }
-                    pathHasPoint = true
-                } else {
-                    path.lineTo(point.x, point.y)
+                previous?.let { prev ->
+                    val gap = sample.atMs - prev.atMs
+                    if (gap <= GAP_BREAK_MS) {
+                        drawGlucoseLineSegment(
+                            start = Offset(x(prev.atMs), y(prev.mgDl.toFloat())),
+                            end = Offset(x(sample.atMs), y(sample.mgDl.toFloat())),
+                            startMgDl = prev.mgDl.toFloat(),
+                            endMgDl = sample.mgDl.toFloat(),
+                            targetLow = targetLow,
+                            targetHigh = targetHigh,
+                            strokeWidth = lineStrokeWidth,
+                            colorForMgDl = { mgDl ->
+                                when {
+                                    mgDl < 54f -> glucoseColors.veryLow
+                                    mgDl < targetLow.toFloat() -> glucoseColors.low
+                                    mgDl <= targetHigh.toFloat() -> glucoseColors.inRange
+                                    mgDl <= 250f -> glucoseColors.high
+                                    else -> glucoseColors.veryHigh
+                                }
+                            },
+                        )
+                    }
                 }
                 previous = sample
             }
-            drawCurrentPath()
 
             visibleSamples.lastOrNull()?.let { latestVisible ->
                 val center = Offset(x(latestVisible.atMs), y(latestVisible.mgDl.toFloat()))
@@ -484,6 +481,63 @@ private fun timeLabel(atMs: Long, windowMs: Long): String {
 
 private fun floorDiv(value: Long, divisor: Long): Long =
     Math.floorDiv(value, divisor)
+
+private fun DrawScope.drawGlucoseLineSegment(
+    start: Offset,
+    end: Offset,
+    startMgDl: Float,
+    endMgDl: Float,
+    targetLow: Int,
+    targetHigh: Int,
+    strokeWidth: Float,
+    colorForMgDl: (Float) -> Color,
+) {
+    var fromFraction = 0f
+    var from = start
+    val breakpoints = glucoseLineBreakpoints(startMgDl, endMgDl, targetLow, targetHigh)
+
+    (breakpoints + 1f).forEach { toFraction ->
+        val to = interpolate(start, end, toFraction)
+        val midpointMgDl = interpolate(startMgDl, endMgDl, (fromFraction + toFraction) / 2f)
+        drawLine(
+            color = colorForMgDl(midpointMgDl),
+            start = from,
+            end = to,
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round,
+        )
+        from = to
+        fromFraction = toFraction
+    }
+}
+
+private fun glucoseLineBreakpoints(
+    startMgDl: Float,
+    endMgDl: Float,
+    targetLow: Int,
+    targetHigh: Int,
+): List<Float> {
+    val delta = endMgDl - startMgDl
+    if (delta == 0f) return emptyList()
+
+    val low = min(startMgDl, endMgDl)
+    val high = max(startMgDl, endMgDl)
+    return listOf(54f, targetLow.toFloat(), targetHigh.toFloat(), 250f)
+        .distinct()
+        .filter { it > low && it < high }
+        .map { (it - startMgDl) / delta }
+        .filter { it > 0f && it < 1f }
+        .sorted()
+}
+
+private fun interpolate(start: Offset, end: Offset, fraction: Float): Offset =
+    Offset(
+        x = interpolate(start.x, end.x, fraction),
+        y = interpolate(start.y, end.y, fraction),
+    )
+
+private fun interpolate(start: Float, end: Float, fraction: Float): Float =
+    start + (end - start) * fraction
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLabel(
     text: String,
