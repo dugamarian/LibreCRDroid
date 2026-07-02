@@ -43,6 +43,13 @@ object LiveUpdatesNotifier {
         val session: ImportedSession?,
     )
 
+    /**
+     * True when our notification may currently be posted. Starts true so a notification that
+     * survived a process restart still gets one cancel; afterwards, the 30s ticker stops issuing
+     * a redundant cancel() binder call on every tick while disabled/stale (e.g., all night).
+     */
+    @Volatile private var maybePosted = true
+
     fun update(
         context: Context,
         state: State,
@@ -51,11 +58,15 @@ object LiveUpdatesNotifier {
         val settings = state.settings
         val reading = state.reading?.takeIf { isFreshGlucose(it.receivedAtMs) }
         if (!settings.enabled || reading == null) {
-            notificationManager(app).cancel(NOTIFICATION_ID)
+            if (maybePosted) {
+                maybePosted = false
+                notificationManager(app).cancel(NOTIFICATION_ID)
+            }
             return
         }
         val displayState = state.copy(reading = reading)
         ensureChannel(app)
+        maybePosted = true
         notificationManager(app).notify(
             NOTIFICATION_ID,
             buildNotification(app, displayState),

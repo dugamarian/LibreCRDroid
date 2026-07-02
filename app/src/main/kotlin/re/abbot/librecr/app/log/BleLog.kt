@@ -89,10 +89,18 @@ object BleLog {
         watchFlush.trySend(Unit)
     }
 
+    // Char-table nibble lookup: hex() runs on the BLE callback path for every packet, where a
+    // per-byte String.format (locale lookup + parsing "%02x" each time) is needless allocation.
+    private val HEX_DIGITS = "0123456789abcdef".toCharArray()
+
     fun hex(data: ByteArray): String {
-        val sb = StringBuilder(data.size * 2)
-        for (b in data) sb.append("%02x".format(b.toInt() and 0xff))
-        return sb.toString()
+        val out = CharArray(data.size * 2)
+        for (i in data.indices) {
+            val v = data[i].toInt() and 0xff
+            out[i * 2] = HEX_DIGITS[v ushr 4]
+            out[i * 2 + 1] = HEX_DIGITS[v and 0x0f]
+        }
+        return String(out)
     }
 
     @Synchronized

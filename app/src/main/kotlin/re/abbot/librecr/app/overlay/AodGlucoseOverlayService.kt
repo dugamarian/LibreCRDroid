@@ -60,6 +60,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
     private var burnInIndex = 0
     private var currentPosition = AodSettings.POSITION_TOP
     private var currentUnit: GlucoseUnit = GlucoseUnit.MG_DL
+    private var lastWindowRefreshMs = 0L
     private lateinit var prefs: SharedPreferences
 
     private val currentReading: GlucoseUi?
@@ -135,7 +136,14 @@ class AodGlucoseOverlayService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Window-state changes are a belt-and-suspenders trigger for the AOD transition (display
+        // callbacks vary per device), but this system-wide stream fires constantly during normal
+        // phone use. Debounce it: the display listener + screen on/off receiver remain the primary
+        // signals, so a short suppression window here cannot miss the doze transition.
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastWindowRefreshMs < WINDOW_EVENT_DEBOUNCE_MS) return
+            lastWindowRefreshMs = now
             refreshVisibility()
         }
     }
@@ -313,6 +321,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
     companion object {
         const val ACTION_REFRESH = "re.abbot.librecr.app.action.AOD_IMMEDIATE_REFRESH"
         private const val PERIODIC_REFRESH_MS = 60_000L
+        private const val WINDOW_EVENT_DEBOUNCE_MS = 500L
         private const val MAX_HISTORY_POINTS = 48
         private val BURN_IN_FRAMES = listOf(
             BurnInFrame(jitterX = 0f, jitterY = 0f, alpha = 0.960f),

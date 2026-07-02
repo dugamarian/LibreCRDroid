@@ -35,6 +35,8 @@ object GlucoseAlarmManager {
 
     private val snoozedUntil = ConcurrentHashMap<AlarmKind, Long>()
     @Volatile private var firing: AlarmKind? = null
+    /** Channel creation is idempotent; skip the per-reading binder round-trip after the first check. */
+    @Volatile private var channelEnsured = false
 
     fun onReading(
         context: Context,
@@ -147,6 +149,8 @@ object GlucoseAlarmManager {
     }
 
     private fun ensureChannel(context: Context) {
+        if (channelEnsured) return
+        channelEnsured = true
         val nm = notificationManager(context.applicationContext)
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(CHANNEL_ID, "Alarme glicemie", NotificationManager.IMPORTANCE_HIGH).apply {
