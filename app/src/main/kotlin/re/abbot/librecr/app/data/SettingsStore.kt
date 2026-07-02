@@ -134,8 +134,9 @@ class SettingsStore(private val context: Context) {
         val targetLow = p[keyTargetLow] ?: 70
         val targetHigh = p[keyTargetHigh] ?: 180
         val wearDefaults = WearAppearanceSettings().withTargets(targetLow, targetHigh)
+        val displayUnit = GlucoseUnit.fromName(p[keyUnit])
         AppSettings(
-            unit = GlucoseUnit.fromName(p[keyUnit]),
+            unit = displayUnit,
             targetLow = targetLow,
             targetHigh = targetHigh,
             agreementAccepted = p[keyAgreementAccepted] ?: false,
@@ -191,6 +192,7 @@ class SettingsStore(private val context: Context) {
                 deltaHighColor = p[keyWearDeltaHighColor] ?: wearDefaults.deltaHighColor,
                 targetLowMgDl = targetLow,
                 targetHighMgDl = targetHigh,
+                unit = displayUnit,
             ),
         )
     }

@@ -1,6 +1,5 @@
 package re.abbot.librecr.app.ui
 
-import android.content.res.Configuration
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
@@ -19,15 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,7 +32,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import kotlinx.coroutines.delay
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.AppSettings
@@ -57,10 +49,7 @@ import re.abbot.librecr.app.ui.settings.LogScreen
 import re.abbot.librecr.app.ui.settings.SettingsScreen
 import re.abbot.librecr.app.ui.settings.UnitsScreen
 import re.abbot.librecr.app.ui.settings.WearAppearanceScreen
-import re.abbot.librecr.app.ui.standby.StandbyScreen
-import re.abbot.librecr.app.ui.standby.rememberChargingState
 import re.abbot.librecr.app.ui.stats.StatsScreen
-import java.util.Calendar
 
 private data class Tab(val route: String, val labelRes: Int, val icon: ImageVector)
 
@@ -168,22 +157,3 @@ private fun routeTitle(route: String?): String = stringResource(
         else -> R.string.title_app
     },
 )
-
-private const val STANDBY_CLOCK_REFRESH_MS = 30_000L
-
-private fun minuteOfDay(timeMillis: Long): Int {
-    val calendar = Calendar.getInstance().apply { this.timeInMillis = timeMillis }
-    return calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
-}
-
-private fun isInTimeWindow(minute: Int, start: Int, end: Int): Boolean {
-    val current = minute.coerceIn(0, 23 * 60 + 59)
-    val normalizedStart = start.coerceIn(0, 23 * 60 + 59)
-    val normalizedEnd = end.coerceIn(0, 23 * 60 + 59)
-    if (normalizedStart == normalizedEnd) return false
-    return if (normalizedStart < normalizedEnd) {
-        current in normalizedStart until normalizedEnd
-    } else {
-        current >= normalizedStart || current < normalizedEnd
-    }
-}

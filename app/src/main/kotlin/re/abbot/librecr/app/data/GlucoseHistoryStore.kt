@@ -29,20 +29,50 @@ class GlucoseHistoryStore(context: Context) {
     private val helper = OpenHelper(app)
 
     @Volatile private var migrated = false
+    @Volatile private var lastPruneAtMs = 0L
 
-    /** Append one reading; same-minute duplicates replace in place. Prunes past the retention window. */
-    suspend fun append(mgDl: Int, atMs: Long): Unit = withContext(Dispatchers.IO) {
+    /**
+     * Append one reading; same-minute duplicates replace in place. Prunes past the retention window.
+     * [mgDl] is the capped display value (feeds statistics); [chartMgDl] is the uncapped-below-floor
+     * value (feeds the chart via [chartSamples]) — usually identical.
+     */
+    suspend fun append(mgDl: Int, chartMgDl: Int, atMs: Long): Unit = withContext(Dispatchers.IO) {
         ensureMigrated()
         val db = helper.writableDatabase
-        db.insertWithOnConflict(TABLE, null, row(atMs, mgDl), SQLiteDatabase.CONFLICT_REPLACE)
+        db.insertWithOnConflict(TABLE, null, row(atMs, mgDl, chartMgDl), SQLiteDatabase.CONFLICT_REPLACE)
+        maybePrune(db)
+    }
+
+    /**
+     * Retention is 90 days, so there is no need to run a ranged DELETE on every per-minute append
+     * (it almost always deletes nothing). Prune at most once per [PRUNE_INTERVAL_MS] (and once at
+     * process start, since lastPruneAtMs is 0).
+     */
+    private fun maybePrune(db: SQLiteDatabase) {
+        val now = System.currentTimeMillis()
+        if (now - lastPruneAtMs < PRUNE_INTERVAL_MS) return
+        lastPruneAtMs = now
         prune(db)
     }
 
-    /** All samples at or after [sinceMs], oldest first (minute-granular times). */
+    /** All samples at or after [sinceMs], oldest first (minute-granular times). Capped display value. */
     suspend fun samples(sinceMs: Long): List<GlucoseSample> = withContext(Dispatchers.IO) {
         ensureMigrated()
         helper.readableDatabase.rawQuery(
             "SELECT minute, mgdl FROM $TABLE WHERE minute >= ? ORDER BY minute ASC",
+            arrayOf((sinceMs / MIN_MS).toString()),
+        ).use { c ->
+            buildList(c.count) {
+                while (c.moveToNext()) add(GlucoseSample(mgDl = c.getInt(1), atMs = c.getLong(0) * MIN_MS))
+            }
+        }
+    }
+
+    /** Like [samples], but the uncapped chart value (falls back to mgdl for pre-v2 rows). Chart only. */
+    suspend fun chartSamples(sinceMs: Long): List<GlucoseSample> = withContext(Dispatchers.IO) {
+        ensureMigrated()
+        helper.readableDatabase.rawQuery(
+            "SELECT minute, COALESCE(chart_mgdl, mgdl) FROM $TABLE WHERE minute >= ? ORDER BY minute ASC",
             arrayOf((sinceMs / MIN_MS).toString()),
         ).use { c ->
             buildList(c.count) {
@@ -123,9 +153,10 @@ class GlucoseHistoryStore(context: Context) {
     private fun count(db: SQLiteDatabase): Int =
         db.rawQuery("SELECT COUNT(*) FROM $TABLE", null).use { if (it.moveToFirst()) it.getInt(0) else 0 }
 
-    private fun row(atMs: Long, mgDl: Int) = ContentValues(2).apply {
+    private fun row(atMs: Long, mgDl: Int, chartMgDl: Int = mgDl) = ContentValues(3).apply {
         put("minute", atMs / MIN_MS)
         put("mgdl", mgDl)
+        put("chart_mgdl", chartMgDl)
     }
 
     /** One-time import of the legacy NDJSON history, then retire the file. */
@@ -175,21 +206,27 @@ class GlucoseHistoryStore(context: Context) {
         }
 
         override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("CREATE TABLE $TABLE (minute INTEGER PRIMARY KEY, mgdl INTEGER NOT NULL)")
+            db.execSQL(
+                "CREATE TABLE $TABLE (minute INTEGER PRIMARY KEY, mgdl INTEGER NOT NULL, chart_mgdl INTEGER)",
+            )
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            // v1 is the first schema; nothing to migrate yet.
+            // v2: add the uncapped chart value column (null for existing rows → COALESCE falls back to mgdl).
+            if (oldVersion < 2) {
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN chart_mgdl INTEGER")
+            }
         }
     }
 
     companion object {
         private const val DB_NAME = "glucose_history.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
         private const val TABLE = "glucose"
         private const val MIN_MS = 60_000L
         private const val DAY_MS = 86_400_000L
         const val RETENTION_DAYS = 90L
+        private const val PRUNE_INTERVAL_MS = 6 * 60 * 60_000L // 6h; retention is 90 days
 
         private const val LEGACY_FILE = "glucose_history.ndjson"
         // Both braces escaped: Android's ICU regex rejects a bare '}' (the JVM tolerates it).

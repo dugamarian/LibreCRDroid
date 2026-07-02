@@ -53,7 +53,7 @@ class AgeDeltaComplicationService : SuspendingComplicationDataSourceService() {
             GlucoseComplicationRenderer.buildAgeDeltaBitmap(this, reading, appearance, attention = attention),
         )
         val description = PlainComplicationText.Builder(
-            GlucoseComplicationRenderer.contentDescription("Glucose time and delta per minute", reading, attention)
+            GlucoseComplicationRenderer.contentDescription("Glucose time and delta per minute", reading, attention, appearance.unit)
         ).build()
         return when (type) {
             ComplicationType.PHOTO_IMAGE -> PhotoImageComplicationData.Builder(image, description)

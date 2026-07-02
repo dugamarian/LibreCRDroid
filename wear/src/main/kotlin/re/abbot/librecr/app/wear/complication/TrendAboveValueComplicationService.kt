@@ -53,7 +53,7 @@ class TrendAboveValueComplicationService : SuspendingComplicationDataSourceServi
             GlucoseComplicationRenderer.buildTrendValueBitmap(this, reading, appearance, attention = attention),
         )
         val description = PlainComplicationText.Builder(
-            GlucoseComplicationRenderer.contentDescription("Glucose trend above value", reading, attention)
+            GlucoseComplicationRenderer.contentDescription("Glucose trend above value", reading, attention, appearance.unit)
         ).build()
         return when (type) {
             ComplicationType.PHOTO_IMAGE -> PhotoImageComplicationData.Builder(image, description)

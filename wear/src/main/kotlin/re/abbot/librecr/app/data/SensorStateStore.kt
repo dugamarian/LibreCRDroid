@@ -38,6 +38,8 @@ class SensorStateStore(private val context: Context) {
         val trend: String,
         val receivedAtMs: Long,
         val deltaMgDlPerMin: Double?,
+        /** Uncapped-below-floor value carried to the phone for its history chart; null ⇒ same as [mgDL]. */
+        val chartMgDL: Int? = null,
     )
 
     /**
@@ -180,9 +182,11 @@ class SensorStateStore(private val context: Context) {
         receivedAtMs: Long,
     ) {
         val previous = loadLastGlucose()
+        // lifeCount (the sensor's minute counter) is the denominator, not wall-clock: post-reconnect
+        // bursts deliver readings seconds apart and a seconds-based denominator exploded delta to ±99.
         val delta = previous
-            ?.takeIf { it.lifeCount != lifeCount && it.receivedAtMs in 1 until receivedAtMs }
-            ?.let { (mgDL - it.mgDL).toDouble() / ((receivedAtMs - it.receivedAtMs).toDouble() / 60_000.0) }
+            ?.takeIf { lifeCount > it.lifeCount && it.receivedAtMs in 1 until receivedAtMs }
+            ?.let { (mgDL - it.mgDL).toDouble() / (lifeCount - it.lifeCount).toDouble() }
         context.dataStore.edit {
             it[keyLastLifeCount] = lifeCount
             it[keyLastMgDL] = mgDL

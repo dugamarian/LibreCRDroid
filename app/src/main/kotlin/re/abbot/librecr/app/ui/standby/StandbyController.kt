@@ -64,10 +64,14 @@ object StandbyController {
     fun init(context: Context) {
         val app = context.applicationContext
         if (!registered) {
+            // NB: deliberately NOT ACTION_BATTERY_CHANGED. That broadcast fires many times per minute
+            // while charging (exactly the standby scenario), and each delivery re-read settings,
+            // re-registered a sticky receiver and rescheduled an exact alarm — a needless wakeup/CPU
+            // firehose. Wireless plug/unplug is already covered by POWER_CONNECTED/DISCONNECTED, and
+            // window entry/exit by the exact boundary alarm (scheduleNextBoundary).
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_POWER_CONNECTED)
                 addAction(Intent.ACTION_POWER_DISCONNECTED)
-                addAction(Intent.ACTION_BATTERY_CHANGED)
                 addAction(Intent.ACTION_CONFIGURATION_CHANGED)
                 addAction(Intent.ACTION_TIME_CHANGED)
                 addAction(Intent.ACTION_TIMEZONE_CHANGED)

@@ -118,6 +118,8 @@ class SensorConnectionManager(
     @Volatile private var reconnectStartedAtMs = 0L
     @Volatile private var awaitingFirstReadingAfterReconnect = false
     @Volatile private var reconnectLastGoodLifeCount: Int? = null
+    /** Rate-limits shipping the watch log to the phone on reconnect (a ~500-line Data Layer push). */
+    @Volatile private var lastLogShipAtMs = 0L
 
     // DataStore persistence runs OFF the decode→ui→send path: a single conflated consumer drains
     // only the latest reading, so a slow write (Wear doze can stall flash I/O for tens of seconds)
@@ -212,11 +214,25 @@ class SensorConnectionManager(
             "SENSOR_DISCONNECTED status=${status ?: -1} lastPacketAgeMs=$age attempt=$reconnectAttempt " +
                 "reason=$reason lastGoodLifeCount=${reconnectLastGoodLifeCount ?: -1}",
         )
-        WearDataSync.sendLog(context)
+        shipLogRateLimited()
         signal.complete(Unit)
     }
 
     private fun reconLog(message: String) = BleLog.log("$WEAR_BLE_TAG $message")
+
+    /**
+     * Ship the watch log to the phone for post-mortem, at most once per [LOG_SHIP_MIN_INTERVAL_MS] —
+     * a reconnect storm must not push ~500 lines over the Data Layer every few seconds. Called on
+     * disconnect AND on reconnect success (so the gap diagnostics reach the phone); the phone's log
+     * screen can always pull the full buffer on demand.
+     */
+    private fun shipLogRateLimited() {
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastLogShipAtMs >= LOG_SHIP_MIN_INTERVAL_MS) {
+            lastLogShipAtMs = nowMs
+            WearDataSync.sendLog(context)
+        }
+    }
 
     /**
      * Backoff keyed to the attempt number (1-based): fast first retries, then a bounded climb. Capped at
@@ -691,6 +707,9 @@ class SensorConnectionManager(
                                     "missing=${r.lifeCount - lastGood - 1}",
                             )
                         }
+                        // Ship the reconnect narrative (drop → attempts → success → gap size) to the
+                        // phone's log viewer; after a long outage the rate limiter has long expired.
+                        shipLogRateLimited()
                     }
                     // Backoff resets only on a real reading from the sensor — not merely on GATT connect.
                     if (reconnectAttempt != 0) {
@@ -702,7 +721,7 @@ class SensorConnectionManager(
                     val issue = glucoseReadingIssue(r)
                     val issueDetail = glucoseReadingIssueDetail(r)
                     // Delta from the previous in-memory reading — never re-reads DataStore.
-                    val delta = if (usable && mg != null) deltaPerMin(lastSentReading, mg, decodedTs) else null
+                    val delta = if (usable && mg != null) deltaPerMin(lastSentReading, mg, r.lifeCount, decodedTs) else null
                     // 1) In-memory StateFlow first: the watch UI, notification and complications all
                     //    read this instantly, independent of any DataStore write.
                     _glucose.value = GlucoseUi(
@@ -722,7 +741,10 @@ class SensorConnectionManager(
                             "usable=$usable issue=${issue ?: "none"} $issueDetail",
                     )
                     if (usable && mg != null) {
-                        val reading = SensorStateStore.LastGlucose(r.lifeCount, mg, r.trendKind.name, decodedTs, delta)
+                        val reading = SensorStateStore.LastGlucose(
+                            r.lifeCount, mg, r.trendKind.name, decodedTs, delta,
+                            chartMgDL = r.currentGlucoseChartMgDL,
+                        )
                         lastSentReading = reading
                         val timeline = GlucoseTimeline(
                             lifeCount = r.lifeCount,
@@ -969,11 +991,17 @@ class SensorConnectionManager(
         }
     }
 
-    /** Per-minute delta from the previous in-memory reading (mirrors the store formula, no I/O). */
-    private fun deltaPerMin(prev: SensorStateStore.LastGlucose?, mgDL: Int, atMs: Long): Double? {
+    /**
+     * Per-minute delta from the previous in-memory reading (no I/O). The denominator is the
+     * sensor's own minute counter (lifeCount), NOT wall-clock time: after a reconnect the sensor
+     * delivers two readings seconds apart, and a wall-clock denominator of a few seconds exploded
+     * the delta to ±99. lifeCount difference is the true elapsed sensor minutes regardless of
+     * when the packets happen to arrive.
+     */
+    private fun deltaPerMin(prev: SensorStateStore.LastGlucose?, mgDL: Int, lifeCount: Int, atMs: Long): Double? {
         val p = prev ?: return null
         if (p.receivedAtMs !in 1 until atMs) return null
-        val minutes = (atMs - p.receivedAtMs) / 60_000.0
+        val minutes = (lifeCount - p.lifeCount).toDouble()
         if (minutes <= 0.0) return null
         return ((mgDL - p.mgDL) / minutes).takeIf { it.isFinite() }
     }
@@ -991,6 +1019,8 @@ class SensorConnectionManager(
         /** Suffix must follow a buffered glucose prefix within this window, else the channel is stale. */
         private const val FRAGMENT_ASSEMBLY_TIMEOUT_MS = 8_000L
         private const val RECONNECT_WAKE_LOCK_TIMEOUT_MS = 5_000L
+        /** Minimum spacing between watch-log pushes to the phone on reconnect. */
+        private const val LOG_SHIP_MIN_INTERVAL_MS = 5 * 60_000L
         /** Cold/first attempt: long window for the sensor's ~minute advertising cadence. */
         private const val COLD_SCAN_TIMEOUT_MS = 60_000L
         /** Reconnect: the sensor re-advertises within seconds of a real drop, so fail fast into backoff. */

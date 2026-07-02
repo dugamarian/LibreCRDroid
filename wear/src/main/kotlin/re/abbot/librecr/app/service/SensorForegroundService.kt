@@ -15,6 +15,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.MainActivity
@@ -54,14 +55,17 @@ class SensorForegroundService : Service() {
             LibreCR.manager.start(
                 scope,
                 session.withoutTransientCrypto(),
-                allowCandidateFirstPair = true,
+                allowCandidateFirstPair = allowCandidateFirstPair,
             )
         }
         if (glucoseCollectorJob?.isActive != true) {
             glucoseCollectorJob = scope.launch {
-                LibreCR.manager.glucose.collectLatest { g ->
-                    val text = if (g?.mgDL != null) "${g.mgDL} mg/dL  ${g.trend}" else "no reading yet"
-                    notify(text)
+                combine(
+                    LibreCR.manager.glucose,
+                    LibreCR.appearance.settingsFlow,
+                ) { g, appearance -> g to appearance.unit }.collectLatest { (g, unit) ->
+                    val mg = g?.mgDL
+                    notify(if (mg != null) "${unit.formatWithUnit(mg)}  ${g.trend}" else "no reading yet")
                 }
             }
         }

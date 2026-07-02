@@ -39,6 +39,8 @@ data class WearAppearanceSettings(
     val deltaHighColor: Int = 0xFFFFC95C.toInt(),
     val targetLowMgDl: Int = 70,
     val targetHighMgDl: Int = 180,
+    /** Display unit, synced from the phone so the watch UI + complications match. */
+    val unit: GlucoseUnit = GlucoseUnit.MG_DL,
 ) {
     fun withTargets(lowMgDl: Int, highMgDl: Int): WearAppearanceSettings =
         copy(
@@ -90,6 +92,7 @@ data class WearAppearanceSettings(
         .put("deltaHighColor", deltaHighColor)
         .put("targetLowMgDl", targetLowMgDl)
         .put("targetHighMgDl", targetHighMgDl)
+        .put("unit", unit.name)
         .toString()
 
     companion object {
@@ -111,6 +114,7 @@ data class WearAppearanceSettings(
                 deltaHighColor = json.optInt("deltaHighColor", defaults.deltaHighColor),
                 targetLowMgDl = json.optInt("targetLowMgDl", defaults.targetLowMgDl),
                 targetHighMgDl = json.optInt("targetHighMgDl", defaults.targetHighMgDl),
+                unit = GlucoseUnit.fromName(json.optString("unit", defaults.unit.name)),
             )
         }
     }

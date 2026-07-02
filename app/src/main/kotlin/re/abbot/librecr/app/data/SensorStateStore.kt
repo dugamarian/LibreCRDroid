@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
@@ -57,6 +58,11 @@ class SensorStateStore(
         val trend: String,
         val receivedAtMs: Long,
         val deltaMgDlPerMin: Double?,
+        /**
+         * Uncapped-below-floor value for the history chart only; null ⇒ same as [mgDL]. The headline
+         * value, alarms and cloud upload always use [mgDL] (the "LO"-capped display value).
+         */
+        val chartMgDL: Int? = null,
     )
 
     data class SensorLifecycleSnapshot(
@@ -83,6 +89,11 @@ class SensorStateStore(
         val error: Libre3SensorError get() = Libre3SensorError.fromCode(errorData)
     }
 
+    // DataStore emits on EVERY write (auto-connect, sensor status, lifecycle, warmup…), not just when
+    // glucose changes. distinctUntilChanged() stops the hot flows below from re-triggering their
+    // collectors (UI recomposition, overlay redraws, alarm evaluation, JSON re-parse downstream) on
+    // writes that left their slice untouched.
+
     /** Last accepted glucose (local or relayed from the watch), for UI + complications. */
     val lastGlucoseFlow: Flow<LastGlucose?> = context.dataStore.data.map { prefs ->
         val lifeCount = prefs[keyLastLifeCount] ?: return@map null
@@ -94,11 +105,11 @@ class SensorStateStore(
             receivedAtMs = prefs[keyLastReceivedAtMs] ?: 0L,
             deltaMgDlPerMin = prefs[keyLastDeltaMgDlPerMin],
         )
-    }
+    }.distinctUntilChanged()
 
     val glucoseHistoryFlow: Flow<List<LastGlucose>> = context.dataStore.data.map { prefs ->
         parseHistory(prefs[keyGlucoseHistory])
-    }
+    }.distinctUntilChanged()
 
     val sensorLifecycleFlow: Flow<SensorLifecycleSnapshot?> = context.dataStore.data.map { prefs ->
         val lifeCount = prefs[keyLifecycleLifeCount] ?: return@map null
@@ -251,13 +262,23 @@ class SensorStateStore(
         saveGlucoseReading(lifeCount, mgDL, "UNKNOWN", System.currentTimeMillis())
     }
 
-    suspend fun saveGlucoseReading(lifeCount: Int, mgDL: Int, trend: String, receivedAtMs: Long) {
+    suspend fun saveGlucoseReading(
+        lifeCount: Int,
+        mgDL: Int,
+        trend: String,
+        receivedAtMs: Long,
+        chartMgDL: Int? = null,
+    ) {
         val previous = loadLastGlucose()?.takeIf { isFreshGlucose(it.receivedAtMs, receivedAtMs) }
+        // lifeCount (the sensor's minute counter) is the denominator, not wall-clock: post-reconnect
+        // bursts deliver readings seconds apart and a seconds-based denominator exploded delta to ±99.
         val delta = previous
-            ?.takeIf { it.lifeCount != lifeCount && it.receivedAtMs in 1 until receivedAtMs }
-            ?.let { (mgDL - it.mgDL).toDouble() / ((receivedAtMs - it.receivedAtMs).toDouble() / 60_000.0) }
+            ?.takeIf { lifeCount > it.lifeCount && it.receivedAtMs in 1 until receivedAtMs }
+            ?.let { (mgDL - it.mgDL).toDouble() / (lifeCount - it.lifeCount).toDouble() }
         context.dataStore.edit {
-            val reading = LastGlucose(lifeCount, mgDL, trend, receivedAtMs, delta)
+            val reading = LastGlucose(lifeCount, mgDL, trend, receivedAtMs, delta, chartMgDL)
+            // keyLastMgDL stays the capped display value (headline number / alarms / upload read it);
+            // only the history blob + SQLite carry the uncapped chart value.
             it[keyLastLifeCount] = lifeCount
             it[keyLastMgDL] = mgDL
             it[keyLastTrend] = trend
@@ -269,7 +290,7 @@ class SensorStateStore(
             else it[keyLastDeltaMgDlPerMin] = delta
             it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
         }
-        history.append(mgDL, receivedAtMs)
+        history.append(mgDL, chartMgDL ?: mgDL, receivedAtMs)
     }
 
     suspend fun saveSensorLifecycle(lifeCountMinutes: Int, observedAtMs: Long = System.currentTimeMillis()) {
@@ -325,20 +346,28 @@ class SensorStateStore(
         lifeCount: Int,
         mgDL: Int,
         trend: String,
+        chartMgDL: Int? = null,
         fallbackReceivedAtMs: Long = System.currentTimeMillis(),
     ): Boolean {
         val current = loadLastGlucose()
         if (current?.lifeCount == lifeCount) return false
         val receivedAtMs = estimateBackfillTime(current, lifeCount, fallbackReceivedAtMs)
         if (current == null || lifeCount > current.lifeCount) {
-            saveGlucoseReading(lifeCount, mgDL, trend, receivedAtMs)
+            saveGlucoseReading(lifeCount, mgDL, trend, receivedAtMs, chartMgDL)
             return true
         }
-        val reading = LastGlucose(lifeCount, mgDL, trend, receivedAtMs, deltaMgDlPerMin = null)
+        val reading = LastGlucose(
+            lifeCount,
+            mgDL,
+            trend,
+            receivedAtMs,
+            deltaMgDlPerMin = null,
+            chartMgDL = chartMgDL,
+        )
         context.dataStore.edit {
             it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
         }
-        history.importSamples(listOf(GlucoseSample(mgDL, receivedAtMs)))
+        history.append(mgDL, chartMgDL ?: mgDL, receivedAtMs)
         return true
     }
 
@@ -354,14 +383,14 @@ class SensorStateStore(
                 context.dataStore.edit {
                     it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
                 }
-                history.append(reading.mgDL, reading.receivedAtMs)
+                history.append(reading.mgDL, reading.chartMgDL ?: reading.mgDL, reading.receivedAtMs)
                 return false
             }
             if (reading.lifeCount == current.lifeCount) {
                 context.dataStore.edit {
                     it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
                 }
-                history.append(reading.mgDL, reading.receivedAtMs)
+                history.append(reading.mgDL, reading.chartMgDL ?: reading.mgDL, reading.receivedAtMs)
                 return false
             }
         }
@@ -378,7 +407,7 @@ class SensorStateStore(
             else it[keyLastDeltaMgDlPerMin] = delta
             it[keyGlucoseHistory] = encodeHistory(appendHistory(parseHistory(it[keyGlucoseHistory]), reading))
         }
-        history.append(reading.mgDL, reading.receivedAtMs)
+        history.append(reading.mgDL, reading.chartMgDL ?: reading.mgDL, reading.receivedAtMs)
         return true
     }
 
@@ -398,6 +427,11 @@ class SensorStateStore(
                     } else {
                         null
                     }
+                    val chartMgDL = if (item.has("chartMgDL") && !item.isNull("chartMgDL")) {
+                        item.optInt("chartMgDL").takeIf { it > 0 }
+                    } else {
+                        null
+                    }
                     add(
                         LastGlucose(
                             lifeCount = lifeCount,
@@ -405,6 +439,7 @@ class SensorStateStore(
                             trend = item.optString("trend", "UNKNOWN"),
                             receivedAtMs = receivedAtMs,
                             deltaMgDlPerMin = delta,
+                            chartMgDL = chartMgDL,
                         ),
                     )
                 }
@@ -425,6 +460,10 @@ class SensorStateStore(
                         reading.deltaMgDlPerMin
                             ?.takeIf { it.isFinite() }
                             ?.let { put("deltaMgDlPerMin", it) }
+                        // Only persist the chart value when it differs from the capped display value.
+                        reading.chartMgDL
+                            ?.takeIf { it != reading.mgDL }
+                            ?.let { put("chartMgDL", it) }
                     },
             )
         }
@@ -458,6 +497,10 @@ class SensorStateStore(
     }
 
     companion object {
-        private const val MAX_GLUCOSE_HISTORY_POINTS = 360
+        // The DataStore JSON blob is now only the short recent window that needs per-point trend:
+        // the Home "recent" list (last 12) and the overlay mini-charts (last 48). Long-term history
+        // and the persistent-alarm series come from SQLite (GlucoseHistoryStore). Keeping this small
+        // makes the per-reading parse→sort→re-encode inside every glucose write cheap.
+        private const val MAX_GLUCOSE_HISTORY_POINTS = 64
     }
 }

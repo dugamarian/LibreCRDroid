@@ -1,8 +1,14 @@
 package re.abbot.librecr.app.log
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -12,10 +18,17 @@ import java.util.Locale
  * + the per-step `eventLogger` closures. Every BLE op and handshake stage is
  * timestamped and kept in an in-memory ring buffer for the in-app log viewer,
  * so a live session can be diffed byte-for-byte against an iOS capture.
+ *
+ * Viewer emissions are *coalesced*: a burst of log lines (the hot BLE-callback
+ * path produces dozens per glucose minute) collapses into at most one snapshot
+ * copy per [PUBLISH_INTERVAL_MS], instead of an O(n) `toList()` + StateFlow
+ * emission on every single line. When idle the flush loops suspend on the
+ * channel (zero CPU).
  */
 object BleLog {
     private const val TAG = "LibreCR"
     private const val MAX_LINES = 2000
+    private const val PUBLISH_INTERVAL_MS = 250L
 
     private val phoneLines = ArrayDeque<String>()
     private val watchLines = ArrayDeque<String>()
@@ -31,6 +44,27 @@ object BleLog {
 
     private val timeFmt = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
 
+    // Conflated flush signals: many log() calls collapse into a single pending flush that the
+    // consumer drains after PUBLISH_INTERVAL_MS, so snapshot copies are throttled during bursts.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val phoneFlush = Channel<Unit>(Channel.CONFLATED)
+    private val watchFlush = Channel<Unit>(Channel.CONFLATED)
+
+    init {
+        scope.launch {
+            for (ignored in phoneFlush) {
+                _phoneLog.value = snapshotPhone()
+                delay(PUBLISH_INTERVAL_MS)
+            }
+        }
+        scope.launch {
+            for (ignored in watchFlush) {
+                _watchLog.value = snapshotWatch()
+                delay(PUBLISH_INTERVAL_MS)
+            }
+        }
+    }
+
     @Synchronized
     fun log(message: String) {
         if (!_enabled.value) return
@@ -38,7 +72,7 @@ object BleLog {
         Log.d(TAG, line)
         phoneLines.addLast(line)
         while (phoneLines.size > MAX_LINES) phoneLines.removeFirst()
-        _phoneLog.value = phoneLines.toList()
+        phoneFlush.trySend(Unit)
     }
 
     /**
@@ -52,7 +86,7 @@ object BleLog {
         watchLines.addLast("──── $source log (${remoteLines.size} lines) @ ${timeFmt.format(Date())} ────")
         for (l in remoteLines) watchLines.addLast("[$source] $l")
         while (watchLines.size > MAX_LINES) watchLines.removeFirst()
-        _watchLog.value = watchLines.toList()
+        watchFlush.trySend(Unit)
     }
 
     fun hex(data: ByteArray): String {
@@ -60,6 +94,12 @@ object BleLog {
         for (b in data) sb.append("%02x".format(b.toInt() and 0xff))
         return sb.toString()
     }
+
+    @Synchronized
+    private fun snapshotPhone(): List<String> = phoneLines.toList()
+
+    @Synchronized
+    private fun snapshotWatch(): List<String> = watchLines.toList()
 
     @Synchronized
     fun clearPhone() {

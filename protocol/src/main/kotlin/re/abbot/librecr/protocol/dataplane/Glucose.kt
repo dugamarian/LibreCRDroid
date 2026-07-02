@@ -16,6 +16,19 @@ sealed class Libre3GlucoseValueStatus {
             is Unavailable -> null
         }
 
+    /**
+     * Value for charting/history only: like [displayMgDL] but returns the sensor's actual (uncapped)
+     * estimate when it reads below the display floor, so a deep hypo is visible on the graph instead
+     * of flat-lining at the "LO" cap. The headline number / alarms / upload keep [displayMgDL].
+     */
+    val chartMgDL: Int?
+        get() = when (this) {
+            is Valid -> mgDL
+            is BelowDisplayRange -> raw
+            is AboveDisplayRange -> cappedMgDL
+            is Unavailable -> null
+        }
+
     val isDisplayable: Boolean get() = displayMgDL != null
 
     companion object {

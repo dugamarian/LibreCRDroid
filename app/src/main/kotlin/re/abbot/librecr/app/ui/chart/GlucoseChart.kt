@@ -56,8 +56,11 @@ import kotlin.math.roundToLong
 private const val HOUR_MS = 3_600_000L
 private const val MIN_WINDOW_MS = HOUR_MS
 private const val MAX_WINDOW_MS = 72L * HOUR_MS
-private const val GAP_BREAK_MS = 15L * 60_000L
+private const val GAP_BREAK_MS = 45L * 60_000L
 private const val LIVE_EDGE_TOLERANCE_MS = 2L * 60_000L
+private const val DEFAULT_GRAPH_LOW_MGDL = 40f
+private const val DEFAULT_GRAPH_HIGH_MGDL = 216f
+private const val GRAPH_EDGE_PADDING_MGDL = 8f
 private val WINDOWS = listOf(1, 3, 6, 12, 24, 72)
 
 @Composable
@@ -185,8 +188,13 @@ private fun GlucoseChartCanvas(
     val visibleSamples = remember(samples, startMs, clampedEndMs) {
         samples.filter { it.atMs in startMs..clampedEndMs }
     }
-    val boundsSamples = visibleSamples.ifEmpty { samples.takeLast(1) }
-    val (yMin, yMax) = yBounds(boundsSamples, targetLow, targetHigh, unit)
+    // The drawn line extends GAP_BREAK_MS past each edge for continuity; the Y bounds must cover that
+    // same set, otherwise a low point in the margin is plotted below the axis and clipped off-canvas.
+    val drawnSamples = remember(samples, startMs, clampedEndMs) {
+        samples.filter { it.atMs in (startMs - GAP_BREAK_MS)..(clampedEndMs + GAP_BREAK_MS) }
+    }
+    val boundsSamples = drawnSamples.ifEmpty { visibleSamples.ifEmpty { samples.takeLast(1) } }
+    val (yMin, yMax) = yBounds(boundsSamples, targetLow, targetHigh)
     val currentWindowMs = rememberUpdatedState(clampedWindowMs)
     val currentViewportEndMs = rememberUpdatedState(clampedEndMs)
     val currentViewportChange = rememberUpdatedState(onViewportChange)
@@ -325,9 +333,7 @@ private fun GlucoseChartCanvas(
                 )
             }
 
-            val pointsToDraw = samples.filter {
-                it.atMs in (startMs - GAP_BREAK_MS)..(clampedEndMs + GAP_BREAK_MS)
-            }
+            val pointsToDraw = drawnSamples
             var previous: GlucoseSample? = null
             val lineStrokeWidth = 3.dp.toPx()
 
@@ -431,21 +437,27 @@ private fun yBounds(
     samples: List<GlucoseSample>,
     targetLow: Int,
     targetHigh: Int,
-    unit: GlucoseUnit,
 ): Pair<Float, Float> {
-    val dataMin = min(samples.minOf { it.mgDl }, targetLow)
-    val dataMax = max(samples.maxOf { it.mgDl }, targetHigh)
-    val tickStep = if (unit == GlucoseUnit.MMOL_L) 36f else 50f
-    val padding = max(tickStep * 0.45f, (dataMax - dataMin) * 0.12f)
-    var low = floor((dataMin - padding) / tickStep) * tickStep
-    var high = ceil((dataMax + padding) / tickStep) * tickStep
-    low = low.coerceAtLeast(0f)
-    high = high.coerceAtMost(450f)
-    if (high - low < tickStep * 2f) {
-        low = (low - tickStep).coerceAtLeast(0f)
-        high = (high + tickStep).coerceAtMost(450f)
+    val sampleMin = samples.minOf { it.mgDl }
+    val sampleMax = samples.maxOf { it.mgDl }
+    var low = min(DEFAULT_GRAPH_LOW_MGDL, targetLow.toFloat())
+    var high = max(DEFAULT_GRAPH_HIGH_MGDL, targetHigh.toFloat())
+
+    if (sampleMin < low + GRAPH_EDGE_PADDING_MGDL) {
+        low = floor((sampleMin - GRAPH_EDGE_PADDING_MGDL) / 10f) * 10f
     }
-    return low to max(high, low + tickStep)
+    if (sampleMax > high - GRAPH_EDGE_PADDING_MGDL) {
+        high = ceil((sampleMax + GRAPH_EDGE_PADDING_MGDL) / 10f) * 10f
+    }
+
+    low = low.coerceAtLeast(0f)
+    high = high.coerceAtMost(500f)
+    if (high - low < 90f) {
+        val extra = (90f - (high - low)) / 2f
+        low = (floor((low - extra) / 10f) * 10f).coerceAtLeast(0f)
+        high = (ceil((high + extra) / 10f) * 10f).coerceAtMost(500f)
+    }
+    return low to max(high, low + 90f)
 }
 
 private fun yTicks(yMin: Float, yMax: Float, unit: GlucoseUnit): List<Int> {

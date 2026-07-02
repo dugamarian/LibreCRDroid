@@ -56,6 +56,7 @@ import re.abbot.librecr.protocol.dataplane.SensorLifecycle
 import re.abbot.librecr.protocol.dataplane.SensorLifecyclePhase
 
 private const val CHART_HISTORY_MS = 72L * 60L * 60L * 1000L
+private const val DEEP_HISTORY_REFRESH_MS = 5L * 60L * 1000L
 private val AttentionRed = Color(0xFFE53935)
 private val AttentionAmber = Color(0xFFFFB300)
 
@@ -93,18 +94,25 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     // Keep the recent list cheap and live, while the chart receives enough persistent history
     // to pan through all of its 3-day window.
     val ring by LibreCR.store.glucoseHistoryFlow.collectAsState(initial = emptyList())
+    // Chart uses the uncapped chart value (chartMgDL) so deep hypos below the ~40 "LO" floor are
+    // visible; the recent list keeps the capped mgDL. Fallback to mgDL when no chart value is stored.
     val liveSamples = remember(ring) {
-        ring.map { GlucoseSample(it.mgDL, it.receivedAtMs) }
+        ring.map { GlucoseSample(it.chartMgDL ?: it.mgDL, it.receivedAtMs) }
     }
-    val samples by produceState(
-        initialValue = liveSamples,
-        key1 = ring,
-    ) {
-        val persistent = LibreCR.history.samples(System.currentTimeMillis() - CHART_HISTORY_MS)
+    // Load the deep 72h history periodically, not on every new reading. The live `ring` (recent ~1h,
+    // with per-point trend) is overlaid on top each recomposition, so the chart tail stays current
+    // without re-querying 72h of SQLite every minute.
+    val persistent by produceState(initialValue = emptyList<GlucoseSample>()) {
+        while (true) {
+            value = LibreCR.history.chartSamples(System.currentTimeMillis() - CHART_HISTORY_MS)
+            delay(DEEP_HISTORY_REFRESH_MS)
+        }
+    }
+    val samples = remember(persistent, liveSamples) {
         val byMinute = LinkedHashMap<Long, GlucoseSample>(persistent.size + liveSamples.size)
         persistent.forEach { byMinute[it.atMs / 60_000L] = it }
         liveSamples.forEach { byMinute[it.atMs / 60_000L] = it }
-        value = byMinute.values.sortedBy { it.atMs }
+        byMinute.values.sortedBy { it.atMs }
     }
 
     Column(

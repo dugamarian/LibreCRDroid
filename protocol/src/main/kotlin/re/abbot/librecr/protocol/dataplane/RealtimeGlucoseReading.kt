@@ -41,6 +41,8 @@ class RealtimeGlucoseReading(plaintext: ByteArray) {
     val trailingByte: Int
 
     val currentGlucoseStatus: Libre3GlucoseValueStatus get() = Libre3GlucoseValueStatus.fromRaw(uncappedCurrentMgDL)
+    /** Uncapped-below-floor value for charts/history only (see [Libre3GlucoseValueStatus.chartMgDL]). */
+    val currentGlucoseChartMgDL: Int? get() = currentGlucoseStatus.chartMgDL
     val historicalGlucoseStatus: Libre3GlucoseValueStatus get() = Libre3GlucoseValueStatus.fromRaw(uncappedHistoricMgDL)
     val isCurrentDQGood: Boolean get() = dqError.isGood && sensorCondition == Libre3SensorCondition.OK
     val isCurrentGlucoseUsable: Boolean get() = isCurrentGlucoseValid && isCurrentDQGood

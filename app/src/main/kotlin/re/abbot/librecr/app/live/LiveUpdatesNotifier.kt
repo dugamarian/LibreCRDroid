@@ -297,7 +297,23 @@ object LiveUpdatesNotifier {
         },
     )
 
-    private fun trendArrowBitmap(context: Context, trend: String?): Bitmap {
+    // Cache the drawn bitmaps: buildNotification runs every ~30s (live "age"/progress tick) but the
+    // trend arrow/badge only change with the trend, and the progress marker only with its color. Keys
+    // are small and bounded (≤6 trends, ≤3 colors). update() is called from a single collector.
+    private val trendArrowCache = HashMap<String, Bitmap>()
+    private val trendBadgeCache = HashMap<String, Bitmap>()
+    private val progressMarkerCache = HashMap<Int, Bitmap>()
+
+    private fun trendArrowBitmap(context: Context, trend: String?): Bitmap =
+        trendArrowCache.getOrPut(trend.orEmpty()) { createTrendArrowBitmap(context, trend) }
+
+    private fun trendBadgeBitmap(context: Context, trend: String?): Bitmap =
+        trendBadgeCache.getOrPut(trend.orEmpty()) { createTrendBadgeBitmap(context, trend) }
+
+    private fun sensorProgressMarkerBitmap(context: Context, progress: SensorProgress): Bitmap =
+        progressMarkerCache.getOrPut(progress.color) { createSensorProgressMarkerBitmap(context, progress) }
+
+    private fun createTrendArrowBitmap(context: Context, trend: String?): Bitmap {
         val size = (48f * context.resources.displayMetrics.density).toInt().coerceAtLeast(48)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -325,7 +341,7 @@ object LiveUpdatesNotifier {
         return bitmap
     }
 
-    private fun trendBadgeBitmap(context: Context, trend: String?): Bitmap {
+    private fun createTrendBadgeBitmap(context: Context, trend: String?): Bitmap {
         val size = (72f * context.resources.displayMetrics.density).toInt().coerceAtLeast(72)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -358,7 +374,7 @@ object LiveUpdatesNotifier {
         return bitmap
     }
 
-    private fun sensorProgressMarkerBitmap(context: Context, progress: SensorProgress): Bitmap {
+    private fun createSensorProgressMarkerBitmap(context: Context, progress: SensorProgress): Bitmap {
         val size = (20f * context.resources.displayMetrics.density).toInt().coerceAtLeast(24)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.data.WearDisplayFontWeight
 import re.abbot.librecr.app.data.SensorStateStore
@@ -56,7 +57,6 @@ import re.abbot.librecr.protocol.TrendArrowShape
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -184,7 +184,7 @@ private fun WearReadingLayout(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
-            text = mgDl?.toString() ?: "--",
+            text = mgDl?.let { appearance.unit.format(it) } ?: "--",
             fontSize = 76.sp,
             lineHeight = 76.sp,
             fontWeight = fontWeight,
@@ -200,7 +200,7 @@ private fun WearReadingLayout(
     }
     Spacer(modifier = Modifier.size(10.dp))
     Text(
-        text = formatDelta(reading?.deltaMgDlPerMin),
+        text = formatDelta(reading?.deltaMgDlPerMin, appearance.unit),
         fontSize = 22.sp,
         lineHeight = 26.sp,
         fontWeight = fontWeight,
@@ -283,10 +283,9 @@ private fun composeColor(argb: Int): Color =
         alpha = AndroidColor.alpha(argb),
     )
 
-private fun formatDelta(delta: Double?): String {
+private fun formatDelta(delta: Double?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String {
     if (delta == null) return "--"
-    val rounded = delta.coerceIn(-99.0, 99.0).roundToInt()
-    return if (rounded > 0) "+$rounded" else rounded.toString()
+    return unit.formatDelta(delta.coerceIn(-99.0, 99.0))
 }
 
 private fun formatTimestamp(timestampMs: Long): String =

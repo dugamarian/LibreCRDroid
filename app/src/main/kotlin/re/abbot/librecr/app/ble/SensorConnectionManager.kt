@@ -615,7 +615,7 @@ class SensorConnectionManager(
                     val usable = r.isCurrentGlucoseUsable
                     val issue = glucoseReadingIssue(r)
                     val issueDetail = glucoseReadingIssueDetail(r)
-                    val delta = if (usable && mg != null) deltaPerMin(lastSentReading, mg, decodedTs) else null
+                    val delta = if (usable && mg != null) deltaPerMin(lastSentReading, mg, r.lifeCount, decodedTs) else null
 
                     // Publish first. UI, overlays and the foreground notification observe this
                     // StateFlow without waiting for disk I/O.
@@ -642,6 +642,7 @@ class SensorConnectionManager(
                             trend = r.trendKind.name,
                             receivedAtMs = decodedTs,
                             deltaMgDlPerMin = delta,
+                            chartMgDL = r.currentGlucoseChartMgDL,
                         )
                         lastSentReading = reading
 
@@ -729,6 +730,7 @@ class SensorConnectionManager(
                                 sample.lifeCount,
                                 mg,
                                 "BACKFILL_HISTORICAL",
+                                chartMgDL = sample.glucoseStatus.chartMgDL,
                             )
                             BleLog.log("[BACKFILL] historical recovered lc=${sample.lifeCount} mgdl=$mg saved=$recovered")
                         }
@@ -741,6 +743,7 @@ class SensorConnectionManager(
                                 r.lifeCount,
                                 it,
                                 "BACKFILL_CLINICAL",
+                                chartMgDL = r.currentGlucose.chartMgDL,
                             )
                         } ?: false
                         BleLog.log(
@@ -876,11 +879,16 @@ class SensorConnectionManager(
         }
     }
 
-    /** Per-minute delta from the previous in-memory reading; no DataStore read on the live path. */
-    private fun deltaPerMin(prev: SensorStateStore.LastGlucose?, mgDL: Int, atMs: Long): Double? {
+    /**
+     * Per-minute delta from the previous in-memory reading; no DataStore read on the live path.
+     * The denominator is the sensor's own minute counter (lifeCount), NOT wall-clock time: after a
+     * reconnect the sensor delivers two readings seconds apart, and a wall-clock denominator of a
+     * few seconds exploded the delta to ±99.
+     */
+    private fun deltaPerMin(prev: SensorStateStore.LastGlucose?, mgDL: Int, lifeCount: Int, atMs: Long): Double? {
         val previous = prev ?: return null
         if (previous.receivedAtMs !in 1 until atMs) return null
-        val minutes = (atMs - previous.receivedAtMs) / 60_000.0
+        val minutes = (lifeCount - previous.lifeCount).toDouble()
         if (minutes <= 0.0) return null
         return ((mgDL - previous.mgDL) / minutes).takeIf { it.isFinite() }
     }

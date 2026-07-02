@@ -169,6 +169,7 @@ object WearDataSync {
             trend = json.optString("trend", "UNKNOWN"),
             receivedAtMs = json.optLong("receivedAtMs", System.currentTimeMillis()),
             deltaMgDlPerMin = if (json.has("deltaMgDlPerMin")) json.getDouble("deltaMgDlPerMin") else null,
+            chartMgDL = if (json.has("chartMgDL")) json.getInt("chartMgDL") else null,
         )
     }
 
@@ -299,7 +300,9 @@ object WearDataSync {
     }
 
     private fun ensureRetryLoop(context: Context) {
-        if (retryLoopStarted) return
+        // The started-flag and the buffer share glucoseBufferLock, so this must NOT be gated by an
+        // unsynchronized fast-path: that could race the loop stopping itself (below) and leave a
+        // pending reading with no running retry loop.
         synchronized(glucoseBufferLock) {
             if (retryLoopStarted) return
             retryLoopStarted = true
@@ -309,6 +312,12 @@ object WearDataSync {
             while (true) {
                 delay(GLUCOSE_RETRY_INTERVAL_MS)
                 val due = synchronized(glucoseBufferLock) {
+                    if (glucoseBuffer.isEmpty()) {
+                        // Everything acked → stop waking every interval. The next sendGlucose/replay
+                        // restarts the loop via ensureRetryLoop (same lock, so no lost wakeup).
+                        retryLoopStarted = false
+                        return@launch
+                    }
                     val now = System.currentTimeMillis()
                     glucoseBuffer.values
                         .filter { now - it.lastSentAtMs >= GLUCOSE_RETRY_INTERVAL_MS }
@@ -385,6 +394,7 @@ object WearDataSync {
             put("trend", reading.trend)
             put("receivedAtMs", reading.receivedAtMs)
             reading.deltaMgDlPerMin?.let { put("deltaMgDlPerMin", it) }
+            reading.chartMgDL?.takeIf { it != reading.mgDL }?.let { put("chartMgDL", it) }
             snapshot.timeline?.let { t ->
                 put("firstNotifyTs", t.firstNotifyTs)
                 put("secondNotifyTs", t.secondNotifyTs)

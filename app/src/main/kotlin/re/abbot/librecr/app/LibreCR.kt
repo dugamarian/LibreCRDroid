@@ -8,6 +8,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -79,24 +81,43 @@ object LibreCR {
                 LiveUpdatesNotifier.update(app, state)
             }
         }
+        // Alarms: evaluate on each new reading. Trigger on lastGlucoseFlow (deduped by lifeCount) and,
+        // for persistent (sustained high/low) alarms, read the recent series straight from SQLite —
+        // which already stores mgDL + minute, exactly what the evaluator uses — instead of the
+        // DataStore JSON history blob. The SQLite read is skipped entirely unless a persistent alarm
+        // is enabled (both default off), so the common case does zero extra I/O per reading.
         appScope.launch {
-            store.glucoseHistoryFlow.collect { history ->
-                val r = history.lastOrNull() ?: return@collect
-                if (r.mgDL !in 1..500) return@collect
-                // Pass the recent series so persistent (sustained high/low) alarms can be evaluated.
-                val samples = history.map { GlucoseSample(it.mgDL, it.receivedAtMs) }
-                val currentSettings = settings.current()
-                runCatching {
-                    GlucoseAlarmManager.onReading(
-                        app,
-                        r.mgDL,
-                        currentSettings.alarms,
-                        samples,
-                        currentSettings.unit,
-                    )
+            store.lastGlucoseFlow
+                .filterNotNull()
+                .distinctUntilChangedBy { it.lifeCount }
+                .collect { r ->
+                    if (r.mgDL !in 1..500) return@collect
+                    val currentSettings = settings.current()
+                    val alarms = currentSettings.alarms
+                    val samples = if (alarms.persistentHighEnabled || alarms.persistentLowEnabled) {
+                        val windowMinutes = maxOf(alarms.persistentHighMinutes, alarms.persistentLowMinutes)
+                            .coerceAtLeast(0)
+                        alarmSeries(System.currentTimeMillis() - (windowMinutes + ALARM_SERIES_MARGIN_MIN) * 60_000L, r)
+                    } else {
+                        listOf(GlucoseSample(r.mgDL, r.receivedAtMs))
+                    }
+                    runCatching {
+                        GlucoseAlarmManager.onReading(app, r.mgDL, alarms, samples, currentSettings.unit)
+                    }
                 }
-                uploader.uploadReading(r.mgDL, r.trend, r.lifeCount, r.receivedAtMs)
-            }
+        }
+        // Cloud upload runs on its OWN collector so slow LibreView network I/O can never delay alarm
+        // evaluation for the next reading. Keyed on the latest reading, deduped by lifeCount (the
+        // uploader also dedups internally and no-ops when upload is disabled).
+        appScope.launch {
+            store.lastGlucoseFlow
+                .filterNotNull()
+                .distinctUntilChangedBy { it.lifeCount }
+                .collect { r ->
+                    if (r.mgDL in 1..500) {
+                        uploader.uploadReading(r.mgDL, r.trend, r.lifeCount, r.receivedAtMs)
+                    }
+                }
         }
         initialized = true
     }
@@ -107,4 +128,20 @@ object LibreCR {
             delay(30_000L)
         }
     }
+
+    /**
+     * Recent per-minute series for persistent alarms, read from the SQLite history and merged with the
+     * just-arrived reading — so the newest point is present in the window even if its own SQLite append
+     * hasn't landed yet (deduped by minute). Only called when a persistent alarm is enabled.
+     */
+    private suspend fun alarmSeries(sinceMs: Long, latest: SensorStateStore.LastGlucose): List<GlucoseSample> {
+        val fromDb = runCatching { history.samples(sinceMs) }.getOrDefault(emptyList())
+        val byMinute = LinkedHashMap<Long, GlucoseSample>(fromDb.size + 1)
+        fromDb.forEach { byMinute[it.atMs / 60_000L] = it }
+        byMinute[latest.receivedAtMs / 60_000L] = GlucoseSample(latest.mgDL, latest.receivedAtMs)
+        return byMinute.values.sortedBy { it.atMs }
+    }
+
+    /** Extra minutes of history fetched beyond the persistent-alarm window, to satisfy its coverage check. */
+    private const val ALARM_SERIES_MARGIN_MIN = 5L
 }

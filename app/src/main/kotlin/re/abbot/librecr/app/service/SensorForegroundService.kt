@@ -55,7 +55,7 @@ class SensorForegroundService : Service() {
             LibreCR.manager.start(
                 scope,
                 session.withoutTransientCrypto(),
-                allowCandidateFirstPair = true,
+                allowCandidateFirstPair = allowCandidateFirstPair,
             )
         }
         if (glucoseCollectorJob?.isActive != true) {

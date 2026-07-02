@@ -58,6 +58,7 @@ object WearDataSync {
             trend = json.optString("trend", "UNKNOWN"),
             receivedAtMs = json.optLong("receivedAtMs", System.currentTimeMillis()),
             deltaMgDlPerMin = if (json.has("deltaMgDlPerMin")) json.getDouble("deltaMgDlPerMin") else null,
+            chartMgDL = if (json.has("chartMgDL")) json.getInt("chartMgDL") else null,
         )
     }
 
@@ -137,6 +138,7 @@ object WearDataSync {
             put("trend", reading.trend)
             put("receivedAtMs", reading.receivedAtMs)
             reading.deltaMgDlPerMin?.let { put("deltaMgDlPerMin", it) }
+            reading.chartMgDL?.takeIf { it != reading.mgDL }?.let { put("chartMgDL", it) }
         }.toString()
         val payload = json.toByteArray()
         sendToNearbyNodes(context, PATH_GLUCOSE, payload)

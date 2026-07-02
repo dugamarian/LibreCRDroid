@@ -9,6 +9,7 @@ import android.graphics.Rect
 import android.graphics.Typeface
 import androidx.core.content.res.ResourcesCompat
 import re.abbot.librecr.app.R
+import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.data.WearDisplayFontWeight
@@ -32,11 +33,11 @@ object GlucoseComplicationRenderer {
     fun timeText(reading: SensorStateStore.LastGlucose?): String =
         reading?.receivedAtMs?.takeIf { it > 0L }?.let { timeFormatter.format(Instant.ofEpochMilli(it)) } ?: "--:--"
 
-    fun deltaText(reading: SensorStateStore.LastGlucose?): String =
-        formatDelta(reading?.deltaMgDlPerMin)
+    fun deltaText(reading: SensorStateStore.LastGlucose?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String =
+        formatDelta(reading?.deltaMgDlPerMin, unit)
 
-    fun valueText(reading: SensorStateStore.LastGlucose?): String =
-        if (isFresh(reading)) reading?.mgDL?.toString() ?: "S.E." else "S.E."
+    fun valueText(reading: SensorStateStore.LastGlucose?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String =
+        if (isFresh(reading)) reading?.mgDL?.let { unit.format(it) } ?: "S.E." else "S.E."
 
     fun buildAgeDeltaBitmap(
         context: Context,
@@ -60,7 +61,7 @@ object GlucoseComplicationRenderer {
         paint.color = settings.deltaColorFor(reading?.mgDL)
         paint.typeface = typefaceFor(context, settings.fontWeight)
         paint.textSize = size * 0.36f
-        drawCenteredText(canvas, deltaText(reading), size / 2f, size * 0.84f, paint)
+        drawCenteredText(canvas, deltaText(reading, settings.unit), size / 2f, size * 0.84f, paint)
         attentionBadge(attention)?.let { drawAttentionDot(canvas, size, it.color) }
         return bitmap
     }
@@ -90,7 +91,7 @@ object GlucoseComplicationRenderer {
         paint.style = Paint.Style.FILL
         paint.strokeWidth = 0f
         // With no fresh value to show, surface the error code itself instead of a blank "--".
-        val centerText = if (!fresh && badge != null) badge.shortText else valueText(reading)
+        val centerText = if (!fresh && badge != null) badge.shortText else valueText(reading, settings.unit)
         paint.color = when {
             !fresh && badge != null -> badge.color
             fresh -> settings.glucoseColorFor(reading?.mgDL)
@@ -141,9 +142,10 @@ object GlucoseComplicationRenderer {
         label: String,
         reading: SensorStateStore.LastGlucose?,
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
+        unit: GlucoseUnit = GlucoseUnit.MG_DL,
     ): String {
         val base = if (reading != null) {
-            "$label ${reading.mgDL} mg/dL ${trendLabel(reading.trend)} ${timeText(reading)} ${deltaText(reading)}"
+            "$label ${unit.formatWithUnit(reading.mgDL)} ${trendLabel(reading.trend)} ${timeText(reading)} ${deltaText(reading, unit)}"
         } else {
             "$label no glucose"
         }
@@ -226,9 +228,8 @@ object GlucoseComplicationRenderer {
     private fun WearDisplayFontWeight.strokeScale(): Float =
         (weight / 400f).coerceIn(0.68f, 1.45f)
 
-    private fun formatDelta(delta: Double?): String {
+    private fun formatDelta(delta: Double?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String {
         if (delta == null) return "--"
-        val rounded = delta.coerceIn(-99.0, 99.0).roundToInt()
-        return if (rounded > 0) "+$rounded" else rounded.toString()
+        return unit.formatDelta(delta.coerceIn(-99.0, 99.0))
     }
 }
