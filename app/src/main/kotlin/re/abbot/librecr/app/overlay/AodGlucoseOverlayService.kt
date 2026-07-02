@@ -172,16 +172,20 @@ class AodGlucoseOverlayService : AccessibilityService() {
     }
 
     private fun observeGlucose() {
+        // The two reading collectors feed only the CURRENT value (live preferred, stored fallback).
+        // The mini-chart history has a single source of truth — the store's history blob, which is
+        // appended on every reading anyway — so no manual per-reading append here (it was redundant:
+        // the next replaceHistory rebuilt the deque from the blob regardless).
         scope.launch {
             LibreCR.manager.glucose.collectLatest { reading ->
                 localReading = reading
-                acceptReading(reading)
+                publishReading()
             }
         }
         scope.launch {
             LibreCR.store.lastGlucoseFlow.collectLatest { last ->
                 storedReading = last?.toGlucoseUi()
-                acceptReading(storedReading)
+                publishReading()
             }
         }
         scope.launch {
@@ -198,18 +202,6 @@ class AodGlucoseOverlayService : AccessibilityService() {
                     aodView?.setGlucoseUnit(unit)
                 }
         }
-    }
-
-    private fun acceptReading(reading: GlucoseUi?) {
-        if (reading == null) {
-            publishReading()
-            return
-        }
-        if (reading.mgDL != null && history.lastOrNull()?.receivedAtMs != reading.receivedAtMs) {
-            history.addLast(reading)
-            while (history.size > MAX_HISTORY_POINTS) history.removeFirst()
-        }
-        publishReading()
     }
 
     private fun replaceHistory(readings: List<GlucoseUi>) {

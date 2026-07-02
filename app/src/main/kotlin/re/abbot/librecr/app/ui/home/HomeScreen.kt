@@ -194,16 +194,29 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 
 private data class SensorAttentionPresentation(val title: String, val detail: String, val color: Color)
 
+@Composable
 private fun sensorAttentionPresentation(attention: Libre3SensorAttention): SensorAttentionPresentation? = when (attention) {
     Libre3SensorAttention.None -> null
-    Libre3SensorAttention.CheckSensor ->
-        SensorAttentionPresentation("Verifică senzorul", "Senzorul raportează o problemă de inserție.", AttentionAmber)
-    Libre3SensorAttention.SensorEnded ->
-        SensorAttentionPresentation("Senzor încheiat", "Sesiunea senzorului s-a încheiat.", AttentionRed)
-    Libre3SensorAttention.ReplaceSensor ->
-        SensorAttentionPresentation("Înlocuiește senzorul", "Senzorul a raportat o eroare și trebuie înlocuit.", AttentionRed)
-    is Libre3SensorAttention.Unknown ->
-        SensorAttentionPresentation("Eroare senzor", "Cod necunoscut raportat de senzor (${attention.code}).", AttentionRed)
+    Libre3SensorAttention.CheckSensor -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_check_title),
+        stringResource(R.string.sensor_attention_check_detail),
+        AttentionAmber,
+    )
+    Libre3SensorAttention.SensorEnded -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_ended_title),
+        stringResource(R.string.sensor_attention_ended_detail),
+        AttentionRed,
+    )
+    Libre3SensorAttention.ReplaceSensor -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_replace_title),
+        stringResource(R.string.sensor_attention_replace_detail),
+        AttentionRed,
+    )
+    is Libre3SensorAttention.Unknown -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_unknown_title),
+        stringResource(R.string.sensor_attention_unknown_detail, attention.code),
+        AttentionRed,
+    )
 }
 
 @Composable

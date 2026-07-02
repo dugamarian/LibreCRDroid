@@ -281,6 +281,30 @@
     <string name="insight_a1c_estimate">HbA1c estimat ridicat</string>
     <string name="insight_a1c_estimate_desc">GMI %1$.1f%%. Discută cu medicul.</string>
 
+    <!-- Glucose alarm notification / full-screen alarm -->
+    <string name="alarm_title_urgent_low">Glicemie foarte scăzută!</string>
+    <string name="alarm_title_low">Glicemie scăzută</string>
+    <string name="alarm_title_high">Glicemie ridicată</string>
+    <string name="alarm_title_persistent_high">Glicemie ridicată persistent</string>
+    <string name="alarm_title_persistent_low">Glicemie scăzută persistent</string>
+    <string name="alarm_action_snooze">Amână</string>
+    <string name="alarm_action_snooze_min">Amână %1$d min</string>
+    <string name="alarm_action_stop">Oprește</string>
+    <string name="alarm_channel_name">Alarme glicemie</string>
+    <string name="alarm_channel_desc">Alarme glicemie scăzută / ridicată</string>
+
+    <!-- Sensor attention (replace / ended / unknown error) — notification + Home card -->
+    <string name="sensor_attention_check_title">Verifică senzorul</string>
+    <string name="sensor_attention_check_detail">Senzorul raportează o problemă de inserție.</string>
+    <string name="sensor_attention_ended_title">Senzor încheiat</string>
+    <string name="sensor_attention_ended_detail">Sesiunea senzorului s-a încheiat.</string>
+    <string name="sensor_attention_replace_title">Înlocuiește senzorul</string>
+    <string name="sensor_attention_replace_detail">Senzorul a raportat o eroare și trebuie înlocuit.</string>
+    <string name="sensor_attention_unknown_title">Eroare senzor</string>
+    <string name="sensor_attention_unknown_detail">Cod necunoscut raportat de senzor (%1$d).</string>
+    <string name="sensor_status_channel_name">Stare senzor</string>
+    <string name="sensor_status_channel_desc">Notificări despre starea senzorului (înlocuire / erori)</string>
+
     <!-- One-time use agreement / medical disclaimer (shown before first use) -->
     <string name="agreement_title">Acord de utilizare</string>
     <string name="agreement_accept">Sunt de acord</string>

@@ -280,6 +280,30 @@
     <string name="insight_a1c_estimate">High estimated HbA1c</string>
     <string name="insight_a1c_estimate_desc">GMI %1$.1f%%. Discuss with your doctor.</string>
 
+    <!-- Glucose alarm notification / full-screen alarm -->
+    <string name="alarm_title_urgent_low">Very low glucose!</string>
+    <string name="alarm_title_low">Low glucose</string>
+    <string name="alarm_title_high">High glucose</string>
+    <string name="alarm_title_persistent_high">Persistently high glucose</string>
+    <string name="alarm_title_persistent_low">Persistently low glucose</string>
+    <string name="alarm_action_snooze">Snooze</string>
+    <string name="alarm_action_snooze_min">Snooze %1$d min</string>
+    <string name="alarm_action_stop">Stop</string>
+    <string name="alarm_channel_name">Glucose alarms</string>
+    <string name="alarm_channel_desc">Low / high glucose alarms</string>
+
+    <!-- Sensor attention (replace / ended / unknown error) — notification + Home card -->
+    <string name="sensor_attention_check_title">Check sensor</string>
+    <string name="sensor_attention_check_detail">The sensor reports an insertion problem.</string>
+    <string name="sensor_attention_ended_title">Sensor ended</string>
+    <string name="sensor_attention_ended_detail">The sensor session has ended.</string>
+    <string name="sensor_attention_replace_title">Replace sensor</string>
+    <string name="sensor_attention_replace_detail">The sensor reported an error and must be replaced.</string>
+    <string name="sensor_attention_unknown_title">Sensor error</string>
+    <string name="sensor_attention_unknown_detail">Unknown code reported by the sensor (%1$d).</string>
+    <string name="sensor_status_channel_name">Sensor status</string>
+    <string name="sensor_status_channel_desc">Notifications about sensor status (replacement / errors)</string>
+
     <!-- One-time use agreement / medical disclaimer (shown before first use) -->
     <string name="agreement_title">User Agreement</string>
     <string name="agreement_accept">I Agree</string>

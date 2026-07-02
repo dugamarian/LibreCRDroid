@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.AppSettings
 import re.abbot.librecr.app.log.BleLog
 import java.util.Calendar
@@ -183,7 +184,7 @@ object StandbyController {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification = Notification.Builder(context, CHANNEL_ID)
-            .setContentTitle("Standby")
+            .setContentTitle(context.getString(R.string.standby_mode))
             .setSmallIcon(android.R.drawable.ic_lock_idle_low_battery)
             .setCategory(Notification.CATEGORY_ALARM)
             .setPriority(Notification.PRIORITY_MAX)
@@ -202,7 +203,11 @@ object StandbyController {
         val nm = notificationManager(context)
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         // High importance so the full-screen intent fires, but silent (standby must not beep).
-        val channel = NotificationChannel(CHANNEL_ID, "Standby", NotificationManager.IMPORTANCE_HIGH).apply {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            context.getString(R.string.standby_mode),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
             setSound(null, null)
             enableVibration(false)
             setShowBadge(false)

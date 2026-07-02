@@ -28,9 +28,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.ui.theme.LibreCRTheme
 
@@ -134,13 +136,7 @@ private fun AlarmScreen(
         AlarmKind.LOW, AlarmKind.PERSISTENT_LOW -> Color(0xFFF4511E)
         AlarmKind.HIGH, AlarmKind.PERSISTENT_HIGH -> Color(0xFFF9A825)
     }
-    val title = when (kind) {
-        AlarmKind.URGENT_LOW -> "Glicemie foarte scăzută"
-        AlarmKind.LOW -> "Glicemie scăzută"
-        AlarmKind.HIGH -> "Glicemie ridicată"
-        AlarmKind.PERSISTENT_HIGH -> "Glicemie ridicată persistent"
-        AlarmKind.PERSISTENT_LOW -> "Glicemie scăzută persistent"
-    }
+    val title = stringResource(GlucoseAlarmManager.titleRes(kind))
     Surface(Modifier.fillMaxSize(), color = accent.copy(alpha = 0.12f)) {
         Column(
             Modifier
@@ -158,14 +154,14 @@ private fun AlarmScreen(
                 modifier = Modifier.fillMaxWidth().height(64.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent),
             ) {
-                Text("Amână ${snoozeMinutes} min", fontSize = 20.sp)
+                Text(stringResource(R.string.alarm_action_snooze_min, snoozeMinutes), fontSize = 20.sp)
             }
             Spacer(Modifier.size(14.dp))
             OutlinedButton(
                 onClick = onStop,
                 modifier = Modifier.fillMaxWidth().height(64.dp),
             ) {
-                Text("Oprește", fontSize = 20.sp)
+                Text(stringResource(R.string.alarm_action_stop), fontSize = 20.sp)
             }
         }
     }
