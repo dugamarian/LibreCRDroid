@@ -94,11 +94,14 @@
             </intent-filter>
         </receiver>
 
-        <!-- Full-screen glucose alarm, visible over the lock screen. -->
+        <!-- Full-screen glucose alarm, visible over the lock screen. configChanges keeps the
+             activity alive across rotation (portrait ↔ landscape standby) so the alarm sound
+             and vibration are not restarted mid-ring. -->
         <activity
             android:name=".alarm.AlarmActivity"
             android:exported="false"
             android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:launchMode="singleInstance"
             android:showWhenLocked="true"
             android:turnScreenOn="true"

@@ -1,5 +1,6 @@
 package re.abbot.librecr.app.alarm
 
+import android.content.res.Configuration
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -12,6 +13,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -137,18 +141,24 @@ private fun AlarmScreen(
         AlarmKind.HIGH, AlarmKind.PERSISTENT_HIGH -> Color(0xFFF9A825)
     }
     val title = stringResource(GlucoseAlarmManager.titleRes(kind))
+    // In landscape (the standby-charger case) the 132sp value plus two 64dp buttons exceed the
+    // screen height, so the content is compacted and scrollable — the buttons must stay reachable.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val valueSize = if (landscape) 96.sp else 132.sp
+    val gap = if (landscape) 20.dp else 48.dp
     Surface(Modifier.fillMaxSize(), color = accent.copy(alpha = 0.12f)) {
         Column(
             Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(28.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = accent)
-            Text(unit.format(mgDl), fontSize = 132.sp, fontWeight = FontWeight.Bold, color = accent)
+            Text(unit.format(mgDl), fontSize = valueSize, fontWeight = FontWeight.Bold, color = accent)
             Text(unit.label, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.size(48.dp))
+            Spacer(Modifier.size(gap))
             Button(
                 onClick = onSnooze,
                 modifier = Modifier.fillMaxWidth().height(64.dp),

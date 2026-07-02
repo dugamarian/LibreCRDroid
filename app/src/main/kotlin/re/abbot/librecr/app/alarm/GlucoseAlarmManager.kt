@@ -155,6 +155,13 @@ object GlucoseAlarmManager {
         runCatching { notificationManager(app).notify(NOTIF_ID, notification) }
             .onSuccess { BleLog.log("alarm notification posted kind=$kind mgdl=$mgDl") }
             .onFailure { BleLog.log("alarm notify FAILED: ${it.message}") }
+        // A full-screen intent only auto-launches when the screen is off/locked; with the screen ON
+        // showing our own UI (the landscape standby clock is the common case) Android downgrades it
+        // to a heads-up. Also try a direct launch: it succeeds whenever the app is in the foreground
+        // and is silently discarded by the OS when backgrounded — the notification stays the fallback.
+        runCatching { app.startActivity(full) }
+            .onSuccess { BleLog.log("alarm direct launch attempted kind=$kind") }
+            .onFailure { BleLog.log("alarm direct launch failed: ${it.message}") }
     }
 
     private fun cancel(context: Context) {
