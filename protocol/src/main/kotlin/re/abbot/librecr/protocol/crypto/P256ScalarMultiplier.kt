@@ -117,9 +117,6 @@ internal object P256ScalarMultiplier {
         return AffinePoint(Field.fromBigEndian32(toFixed32BE(x)), Field.fromBigEndian32(toFixed32BE(y)))
     }
 
-    private fun Field.toBigInteger(): BigInteger =
-        BigInteger(1, littleEndianPadded70.copyOfRange(0, 32).reversedArray())
-
     private fun add(a: BigInteger, b: BigInteger): BigInteger = a.add(b).mod(P256_PRIME)
     private fun sub(a: BigInteger, b: BigInteger): BigInteger = a.subtract(b).mod(P256_PRIME)
     private fun sub(a: BigInteger, vararg rest: BigInteger): BigInteger {
@@ -196,13 +193,14 @@ internal class Field(val l0: ULong, val l1: ULong, val l2: ULong, val l3: ULong)
         return subRaw(MODULUS, diff)
     }
 
-    operator fun times(rhs: Field): Field {
-        val product = ULongArray(8)
-        val a = limbs
-        val b = rhs.limbs
-        for (i in 0 until 4) for (j in 0 until 4) addProduct(product, i + j, a[i], b[j])
-        return reduce(product)
-    }
+    // Multiply/reduce and inverse go through java.math.BigInteger (native, constant-ish cost) instead
+    // of the previous 512-iteration bit-by-bit reduce and 256-round Fermat inverse — each of those did
+    // thousands of 64-bit shift/compare/subtract steps per field op, which the watch's 32-bit CPU
+    // emulates limb-by-limb (measured ~3600x JVM→watch on the P-256-heavy ephemeral path). Add/sub keep
+    // the fast single-pass limb path; equality, comparison and the byte layout are unchanged, so the
+    // golden derivation output is byte-identical (guarded by P256Test / CryptoGoldenTest / SessionKey).
+    operator fun times(rhs: Field): Field =
+        fromBigInteger(toBigInteger().multiply(rhs.toBigInteger()).mod(PRIME))
 
     fun squared(): Field = this * this
     fun doubled(): Field = this + this
@@ -210,22 +208,33 @@ internal class Field(val l0: ULong, val l1: ULong, val l2: ULong, val l3: ULong)
     fun times4(): Field = this.doubled().doubled()
     fun times8(): Field = this.times4().doubled()
 
-    fun inverted(): Field {
-        val exponent = Field(0xffff_ffff_ffff_fffdUL, 0x0000_0000_ffff_ffffUL, 0UL, 0xffff_ffff_0000_0001UL)
-        var result = ONE
-        for (bit in 255 downTo 0) {
-            result = result.squared()
-            if (exponent.bit(bit)) result = result * this
-        }
-        return result
-    }
+    fun inverted(): Field = fromBigInteger(toBigInteger().modInverse(PRIME))
 
-    private fun bit(bit: Int): Boolean = ((limbs[bit / 64] shr (bit and 63)) and 1UL) != 0UL
+    fun toBigInteger(): java.math.BigInteger {
+        val be = ByteArray(32)
+        writeU64BE(be, 0, l3); writeU64BE(be, 8, l2); writeU64BE(be, 16, l1); writeU64BE(be, 24, l0)
+        return java.math.BigInteger(1, be)
+    }
 
     companion object {
         val ZERO = Field(0UL, 0UL, 0UL, 0UL)
         val ONE = Field(1UL, 0UL, 0UL, 0UL)
         val MODULUS = Field(0xffff_ffff_ffff_ffffUL, 0x0000_0000_ffff_ffffUL, 0UL, 0xffff_ffff_0000_0001UL)
+        private val PRIME = java.math.BigInteger(
+            "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16,
+        )
+
+        fun fromBigInteger(v: java.math.BigInteger): Field {
+            val raw = v.toByteArray()
+            val be = ByteArray(32)
+            if (raw.size <= 32) raw.copyInto(be, 32 - raw.size) else raw.copyInto(be, 0, raw.size - 32, raw.size)
+            return fromBigEndian32(be)
+        }
+
+        private fun writeU64BE(out: ByteArray, offset: Int, value: ULong) {
+            var v = value
+            for (i in 7 downTo 0) { out[offset + i] = (v and 0xffUL).toByte(); v = v shr 8 }
+        }
         val CARRY_CORRECTION = Field(1UL, 0xffff_ffff_0000_0000UL, 0xffff_ffff_ffff_ffffUL, 0x0000_0000_ffff_fffeUL)
         val B = Field(0x3bce_3c3e_27d2_604bUL, 0x651d_06b0_cc53_b0f6UL, 0xb3eb_bd55_7698_86bcUL, 0x5ac6_35d8_aa3a_93e7UL)
 
@@ -275,72 +284,6 @@ internal class Field(val l0: ULong, val l1: ULong, val l2: ULong, val l3: ULong)
             }
             return Field(out[0], out[1], out[2], out[3])
         }
-
-        private fun addProduct(product: ULongArray, index: Int, lhs: ULong, rhs: ULong) {
-            val (high, low) = mulFullWidth(lhs, rhs)
-            var carry = addWord(product, index, low)
-            carry = addWord(product, index + 1, high + carry)
-            if (high == ULong.MAX_VALUE && carry == 0UL) carry = 1UL
-            var carryIndex = index + 2
-            while (carry != 0UL) {
-                carry = addWord(product, carryIndex, carry)
-                carryIndex += 1
-            }
-        }
-
-        private fun addWord(limbs: ULongArray, index: Int, word: ULong): ULong {
-            val sum = limbs[index] + word
-            val overflow = sum < limbs[index]
-            limbs[index] = sum
-            return if (overflow) 1UL else 0UL
-        }
-
-        /** 64×64 → 128-bit unsigned multiply, returns (high, low). */
-        private fun mulFullWidth(a: ULong, b: ULong): Pair<ULong, ULong> {
-            val mask = 0xffff_ffffUL
-            val aLo = a and mask
-            val aHi = a shr 32
-            val bLo = b and mask
-            val bHi = b shr 32
-            val ll = aLo * bLo
-            val lh = aLo * bHi
-            val hl = aHi * bLo
-            val hh = aHi * bHi
-            val cross = (ll shr 32) + (lh and mask) + (hl and mask)
-            val low = (ll and mask) or (cross shl 32)
-            val high = hh + (lh shr 32) + (hl shr 32) + (cross shr 32)
-            return high to low
-        }
-
-        private fun reduce(limbs: ULongArray): Field {
-            var remainder = ZERO
-            for (bit in (limbs.size * 64 - 1) downTo 0) {
-                remainder = shiftAppendBitModP(remainder, bitSet(limbs, bit))
-            }
-            return remainder
-        }
-
-        private fun shiftAppendBitModP(value: Field, bit: Boolean): Field {
-            val limbs = value.limbs
-            val out = ULongArray(4)
-            var carry: ULong = if (bit) 1UL else 0UL
-            for (index in 0 until 4) {
-                val nextCarry = limbs[index] shr 63
-                out[index] = (limbs[index] shl 1) or carry
-                carry = nextCarry
-            }
-            var shifted = Field(out[0], out[1], out[2], out[3])
-            if (carry != 0UL) {
-                val (corrected, _) = addRaw(shifted, CARRY_CORRECTION)
-                shifted = corrected
-            } else if (shifted >= MODULUS) {
-                shifted = subRaw(shifted, MODULUS)
-            }
-            return if (shifted >= MODULUS) subRaw(shifted, MODULUS) else shifted
-        }
-
-        private fun bitSet(limbs: ULongArray, bit: Int): Boolean =
-            ((limbs[bit / 64] shr (bit and 63)) and 1UL) != 0UL
 
         private fun readU64BE(bytes: ByteArray, offset: Int): ULong {
             var value = 0UL

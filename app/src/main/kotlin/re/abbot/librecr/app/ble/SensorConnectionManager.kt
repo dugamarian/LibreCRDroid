@@ -61,12 +61,10 @@ data class GlucoseUi(
 )
 
 /**
- * True while the sensor is actively reporting an unusable reading (VALUE_UNAVAILABLE / data
- * quality / sensor condition). The live state only ever advances (stale/duplicate remote events
- * are rejected before publishing), so a fresh unusable value IS the newest known sensor state —
- * every UI surface should show "sensor error" instead of falling back to an older stored value.
+ * True while the latest realtime glucose packet has no displayable value. This is not, by itself,
+ * a sensor-error signal; patch-status attention remains the source of truth for real sensor errors.
  */
-fun GlucoseUi?.isActiveSensorError(nowMs: Long = System.currentTimeMillis()): Boolean =
+fun GlucoseUi?.isActiveGlucoseUnavailable(nowMs: Long = System.currentTimeMillis()): Boolean =
     this != null && !usable && isFreshGlucose(receivedAtMs, nowMs)
 
 private data class BackfillRequest(

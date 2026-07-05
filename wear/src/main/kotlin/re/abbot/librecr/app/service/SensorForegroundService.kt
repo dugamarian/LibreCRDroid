@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.MainActivity
+import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.log.BleLog
 
 /**
@@ -63,10 +64,13 @@ class SensorForegroundService : Service() {
                 combine(
                     LibreCR.manager.glucose,
                     LibreCR.appearance.settingsFlow,
-                ) { g, appearance -> g to appearance.unit }.collectLatest { (g, unit) ->
+                    LibreCR.manager.state,
+                ) { g, appearance, state -> Triple(g, appearance.unit, state) }.collectLatest { (g, unit, state) ->
                     val text = when {
+                        g == null && state.isUnavailableForDisplay() -> "out of range"
                         g == null -> "no reading yet"
-                        !g.usable -> "sensor error"
+                        !g.usable -> "out of range"
+                        state.isUnavailableForDisplay() && !isFresh(g.receivedAtMs) -> "out of range"
                         g.mgDL != null -> "${unit.formatWithUnit(g.mgDL)}  ${g.trend}"
                         else -> "no reading yet"
                     }
@@ -116,9 +120,20 @@ class SensorForegroundService : Service() {
         nm.createNotificationChannel(channel)
     }
 
+    private fun ConnectionState.isUnavailableForDisplay(): Boolean =
+        this == ConnectionState.SCANNING ||
+            this == ConnectionState.CONNECTING ||
+            this == ConnectionState.HANDSHAKING ||
+            this == ConnectionState.RECONNECTING ||
+            this == ConnectionState.ERROR
+
+    private fun isFresh(receivedAtMs: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
+        receivedAtMs > 0L && nowMs - receivedAtMs < GLUCOSE_STALE_AFTER_MS
+
     companion object {
         private const val CHANNEL_ID = "librecr_sensor"
         private const val NOTIF_ID = 1
+        private const val GLUCOSE_STALE_AFTER_MS = 6 * 60_000L
         private const val EXTRA_ALLOW_CANDIDATE_FIRST_PAIR =
             "re.abbot.librecr.app.extra.ALLOW_CANDIDATE_FIRST_PAIR"
 

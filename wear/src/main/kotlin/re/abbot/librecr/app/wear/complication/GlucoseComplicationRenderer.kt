@@ -40,7 +40,7 @@ object GlucoseComplicationRenderer {
         formatDelta(reading?.deltaMgDlPerMin, unit)
 
     fun valueText(reading: SensorStateStore.LastGlucose?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String =
-        if (isFresh(reading)) reading?.mgDL?.let { unit.format(it) } ?: "S.E." else "S.E."
+        if (isFresh(reading)) reading?.mgDL?.let { unit.format(it) } ?: "OOR" else "OOR"
 
     fun buildAgeDeltaBitmap(
         context: Context,
@@ -50,8 +50,15 @@ object GlucoseComplicationRenderer {
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
         sensorError: Boolean = false,
         sensorErrorAtMs: Long = 0L,
+        unavailable: Boolean = false,
+        unavailableAtMs: Long = 0L,
     ): Bitmap {
         val fresh = isFresh(reading)
+        val statusAtMs = when {
+            sensorError -> sensorErrorAtMs
+            unavailable -> unavailableAtMs
+            else -> 0L
+        }
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -59,15 +66,23 @@ object GlucoseComplicationRenderer {
         }
         canvas.drawColor(Color.TRANSPARENT)
 
-        paint.color = if (sensorError) COLOR_ERROR else settings.timestampColor(stale = !fresh)
+        paint.color = when {
+            sensorError -> COLOR_ERROR
+            unavailable -> settings.timestampStaleColor
+            else -> settings.timestampColor(stale = !fresh)
+        }
         paint.typeface = typefaceFor(context, settings.fontWeight)
         paint.textSize = size * 0.34f * TIMESTAMP_TEXT_SCALE
-        val time = if (sensorError) timeText(sensorErrorAtMs) else timeText(reading)
+        val time = if (sensorError || unavailable) timeText(statusAtMs) else timeText(reading)
         drawCenteredText(canvas, time, size / 2f, size * 0.27f, paint)
-        paint.color = if (sensorError) settings.timestampStaleColor else settings.deltaColorFor(reading?.mgDL)
+        paint.color = if (sensorError || unavailable) settings.timestampStaleColor else settings.deltaColorFor(reading?.mgDL)
         paint.typeface = typefaceFor(context, settings.fontWeight)
         paint.textSize = size * 0.36f
-        val delta = if (sensorError) "--" else deltaText(reading, settings.unit)
+        val delta = when {
+            sensorError -> "--"
+            unavailable -> "OOR"
+            else -> deltaText(reading, settings.unit)
+        }
         drawCenteredText(canvas, delta, size / 2f, size * 0.84f, paint)
         attentionBadge(attention)?.let { drawAttentionDot(canvas, size, it.color) }
         return bitmap
@@ -80,6 +95,7 @@ object GlucoseComplicationRenderer {
         size: Int = 150,
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
         sensorError: Boolean = false,
+        unavailable: Boolean = false,
     ): Bitmap {
         val fresh = isFresh(reading)
         val badge = attentionBadge(attention)
@@ -94,25 +110,25 @@ object GlucoseComplicationRenderer {
         canvas.save()
         canvas.translate(0f, -size * 0.15f)
 
-        val arrow = buildArrowBitmap(if (sensorError) null else reading, settings, (size * 0.38f).roundToInt())
+        val arrow = buildArrowBitmap(if (sensorError || unavailable) null else reading, settings, (size * 0.38f).roundToInt())
         canvas.drawBitmap(arrow, (size - arrow.width) / 2f, size * 0.17f, null)
         paint.style = Paint.Style.FILL
         paint.strokeWidth = 0f
-        // Live sensor error → abbreviated "S.E." in the error color. With no fresh value to show,
-        // surface the attention code itself instead of a blank "--".
         val centerText = when {
             sensorError -> "S.E."
+            unavailable -> "OOR"
             !fresh && badge != null -> badge.shortText
             else -> valueText(reading, settings.unit)
         }
         paint.color = when {
             sensorError -> COLOR_ERROR
+            unavailable -> settings.timestampStaleColor
             !fresh && badge != null -> badge.color
             fresh -> settings.glucoseColorFor(reading?.mgDL)
             else -> settings.timestampStaleColor
         }
         paint.typeface = typefaceFor(context, settings.fontWeight)
-        paint.textSize = if (sensorError || (!fresh && badge != null)) size * 0.36f else size * 0.50f
+        paint.textSize = if (sensorError || unavailable || (!fresh && badge != null)) size * 0.36f else size * 0.50f
         drawCenteredText(canvas, centerText, size / 2f, size * 0.74f, paint)
         // Even with a fresh value, flag attention with a corner dot so the number stays visible.
         badge?.let { drawAttentionDot(canvas, size, it.color) }
@@ -158,9 +174,11 @@ object GlucoseComplicationRenderer {
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
         unit: GlucoseUnit = GlucoseUnit.MG_DL,
         sensorError: Boolean = false,
+        unavailable: Boolean = false,
     ): String {
         val base = when {
             sensorError -> "$label sensor error"
+            unavailable -> "$label out of range"
             reading != null ->
                 "$label ${unit.formatWithUnit(reading.mgDL)} ${trendLabel(reading.trend)} ${timeText(reading)} ${deltaText(reading, unit)}"
             else -> "$label no glucose"

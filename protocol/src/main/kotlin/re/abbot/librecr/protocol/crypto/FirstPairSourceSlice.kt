@@ -1705,9 +1705,7 @@ internal object FirstPairSourceSlice {
     // 6473d0 Third (source words from second output + context + in0, SP430, streams from in2)
     fun builder6473d0ThirdSourceWords(secondOutput: ByteArray, contextSource: ByteArray, in0: ByteArray): UIntArray {
         val t = Tables.shared
-        val base = u32WordsFromTableSegments(
-            listOf(0x126340 to 16, 0x125500 to 16, 0x126340 to 16, 0x125500 to 16, 0x126340 to 16, 0x126af8 to 8), t,
-        )
+        val base = sourceBase6473d0Third
         return UIntArray(V63) { index ->
             val to = (index * 4) and 0x1c
             var word = base[index] + rdU32(secondOutput, index * 4) * u32Tbl(0x115ec8 + to, t)
@@ -1755,9 +1753,7 @@ internal object FirstPairSourceSlice {
     // 6473d0 Fifth (source words from fourth output + context + in1, SP3D8, streams from sp430)
     fun builder6473d0FifthSourceWords(fourthOutput: ByteArray, contextSource: ByteArray, in1: ByteArray): UIntArray {
         val t = Tables.shared
-        val base = u32WordsFromTableSegments(
-            listOf(0x124e40 to 16, 0x125c20 to 16, 0x124e40 to 16, 0x125c20 to 16, 0x124e40 to 16, 0x126778 to 8), t,
-        )
+        val base = sourceBase6473d0Fifth
         return UIntArray(V63) { index ->
             val to = (index * 4) and 0x1c
             var word = base[index] + rdU32(fourthOutput, index * 4) * u32Tbl(0x1148a8 + to, t)
@@ -1856,9 +1852,7 @@ internal object FirstPairSourceSlice {
     // 6473d0 Ninth — multi-stage (3 source reducers + 2 convolution reducers + workspace)
     fun builder6473d0NinthFirstSourceWords(eighthOutput: ByteArray, contextSource: ByteArray, sp328Words: UIntArray, sp2d0Words: UIntArray): UIntArray {
         val t = Tables.shared
-        val base = u32WordsFromTableSegments(
-            listOf(0x126550 to 16, 0x124f30 to 16, 0x126550 to 16, 0x124f30 to 16, 0x126550 to 16, 0x126c30 to 8), t,
-        )
+        val base = sourceBase6473d0NinthFirst
         return UIntArray(V63) { index ->
             val to = (index * 4) and 0x1c
             val sp2d0Delta = sp2d0Words[index] * u32Tbl(0x117b28 + to, t)
@@ -1875,9 +1869,7 @@ internal object FirstPairSourceSlice {
 
     fun builder6473d0NinthSecondSourceWords(sp2d0Words: UIntArray, contextSource: ByteArray, out2Words: UIntArray): UIntArray {
         val t = Tables.shared
-        val base = u32WordsFromTableSegments(
-            listOf(0x124f40 to 16, 0x126610 to 16, 0x124f40 to 16, 0x126610 to 16, 0x124f40 to 16, 0x126d10 to 8), t,
-        )
+        val base = sourceBase6473d0NinthSecond
         return UIntArray(V63) { index ->
             val to = (index * 4) and 0x1c
             base[index] +
@@ -2044,6 +2036,12 @@ internal object FirstPairSourceSlice {
         val arg0: ByteArray, val scalar: ULong, val x2Workspace: ByteArray, val x3Preimage: ByteArray,
         val stackWindow: ByteArray, val output: ByteArray,
     )
+    private class Builder6388f0SeededCaller64Tail(
+        val next642f60: Builder6388f0Next642f60Inputs,
+        val out4: ByteArray,
+        val out3: ByteArray,
+        val out2: ByteArray,
+    )
 
     private const val CALLER_STACK_BYTES = 0x5000
     private const val CALLER_LOOP_ROWS = 59
@@ -2061,6 +2059,10 @@ internal object FirstPairSourceSlice {
             System.arraycopy(interleaved, ro + CALLER_LOOP_ROW_BYTES, context, 0x1910 + row * CALLER_LOOP_ROW_BYTES, CALLER_LOOP_ROW_BYTES)
         }
         return context
+    }
+
+    private val bundled6388f0CallerContext: ByteArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        builder6388f0CallerContextFromBundle()
     }
 
     fun builder6473d0MinimalStack20FromPreimages(p: Builder6473d0OutputPreimages): ByteArray {
@@ -2124,6 +2126,9 @@ internal object FirstPairSourceSlice {
         val output = packU32LE(builder64cd40OutputWords(state.arg0, state.scalar, state.x2Workspace))
         return Builder6388f0Caller64Call(state.arg0, state.scalar, state.x2Workspace, state.x3Preimage, state.stackWindow, output)
     }
+
+    private fun builder6388f0Call64Output(state: Builder6388f0Caller64CallState): ByteArray =
+        packU32LE(builder64cd40OutputWords(state.arg0, state.scalar, state.x2Workspace))
 
     fun builder6388f0First64cd40CallState(contextSource: ByteArray, callerStack20: ByteArray, postVectors: Map<Int, ByteArray>, entryIndex: Int): Builder6388f0Caller64CallState {
         val t = Tables.shared
@@ -2511,6 +2516,22 @@ internal object FirstPairSourceSlice {
         return Builder6388f0SeededCaller64Row(index, current642f60, preimages, after642f60, after6473d0, minimalStack20, first64cd40, second64cd40, third64cd40, next642f60)
     }
 
+    private fun builder6388f0SeededCaller64Tail(
+        index: Int, current642f60: Builder6388f0Next642f60Inputs, preimages: Builder6473d0OutputPreimages, contextSource: ByteArray,
+    ): Builder6388f0SeededCaller64Tail {
+        val after642f60 = builder642f60Outputs(current642f60.x0, current642f60.x1, current642f60.x2, contextSource)
+        val after6473d0 = builder6473d0Outputs(after642f60.out0, after642f60.out1, after642f60.out2, contextSource, preimages.out0, preimages.out1)
+        val minimalStack20 = builder6473d0MinimalStack20FromPreimages(preimages)
+        val postVectors = builder6473d0PostVectors(after6473d0)
+
+        val first64cd40Output = builder6388f0Call64Output(builder6388f0First64cd40CallState(contextSource, minimalStack20, postVectors, index))
+        val second64cd40Output = builder6388f0Call64Output(builder6388f0Second64cd40CallState(contextSource, minimalStack20, postVectors, first64cd40Output, index))
+        val third64cd40Output = builder6388f0Call64Output(builder6388f0Third64cd40CallState(contextSource, minimalStack20, postVectors, second64cd40Output, index))
+        val next642f60 = builder6388f0Next642f60InputsFrom64cd40Outputs(first64cd40Output, second64cd40Output, third64cd40Output)
+
+        return Builder6388f0SeededCaller64Tail(next642f60, after6473d0.out4, after6473d0.out3, after6473d0.out2)
+    }
+
     // ---- 6388f0 stream-start seeds + full caller-row loop (118 rows; row0/row59 reseed) ----
 
     /** Candidate invariant 532-byte entry source consumed by the row-0 low-seed path. */
@@ -2585,7 +2606,7 @@ internal object FirstPairSourceSlice {
         x2Source: ByteArray? = null,
     ): List<Builder6388f0SeededCaller64Row> {
         require(limit in 0..(CALLER_LOOP_ROWS * 2)) { "invalid 6388f0 row limit $limit" }
-        val context = contextSource ?: builder6388f0CallerContextFromBundle()
+        val context = contextSource ?: bundled6388f0CallerContext
 
         val row0Out0 = builder6388f0RecoverStreamStartOut0SeedFrom642f60X0(starts.row0.x0)
         val row0Out1 = builder6388f0RecoverStreamStartOut1SeedFrom642f60X1(starts.row0.x1)
@@ -2873,6 +2894,93 @@ internal object FirstPairSourceSlice {
         return Builder6388f0Seeded63c278Schedules(stream(CALLER_LOOP_ROWS - 1), stream(CALLER_LOOP_ROWS * 2 - 1))
     }
 
+    fun builder6388f0Seeded63c278SchedulesFromFirstPairStreamSeeds(
+        seeds: Builder6388f0FirstPairStreamSeeds,
+        arg0: ByteArray = pre63c278Arg0Source,
+        scalar: ULong = pre63c278Scalar,
+        contextSource: ByteArray? = null,
+        x2Source: ByteArray? = null,
+    ): Builder6388f0Seeded63c278Schedules {
+        require(arg0.size >= V63 * 4)
+        val starts = builder6388f0FirstPair642f60StreamStarts(seeds, x2Source)
+        val row0LowPreimages = Builder6473d0OutputPreimages(seeds.row0Out4, seeds.row0Out3, seeds.row0Out2, seeds.row0Out1, seeds.row0Out0)
+        val context = contextSource ?: bundled6388f0CallerContext
+
+        val row0Out0 = builder6388f0RecoverStreamStartOut0SeedFrom642f60X0(starts.row0.x0)
+        val row0Out1 = builder6388f0RecoverStreamStartOut1SeedFrom642f60X1(starts.row0.x1)
+        val row59Out0 = builder6388f0RecoverStreamStartOut0SeedFrom642f60X0(starts.row59.x0)
+        val row59Out1 = builder6388f0RecoverStreamStartOut1SeedFrom642f60X1(starts.row59.x1)
+        val row0Start = builder6388f0StreamStart642f60Inputs(row0Out0, row0Out1, x2Source)
+        val row59Start = builder6388f0StreamStart642f60Inputs(row59Out0, row59Out1, x2Source)
+        val arg0Prefix = arg0.copyOf(V63 * 4)
+
+        var previousOut4: ByteArray? = null
+        var previousOut3: ByteArray? = null
+        var previousOut2: ByteArray? = null
+        var carried642f60: Builder6388f0Next642f60Inputs? = null
+        var activeOut0Seed: ByteArray? = null
+        var activeOut1Seed: ByteArray? = null
+        var first: Builder6388f0Seeded63c278Stream? = null
+        var second: Builder6388f0Seeded63c278Stream? = null
+
+        for (index in 0 until CALLER_LOOP_ROWS * 2) {
+            val current642f60: Builder6388f0Next642f60Inputs
+            val preimages: Builder6473d0OutputPreimages
+            when (index) {
+                0 -> {
+                    current642f60 = row0Start
+                    activeOut0Seed = row0Out0
+                    activeOut1Seed = row0Out1
+                    preimages = row0LowPreimages
+                }
+                CALLER_LOOP_ROWS -> {
+                    current642f60 = row59Start
+                    activeOut0Seed = row59Out0
+                    activeOut1Seed = row59Out1
+                    preimages = Builder6473d0OutputPreimages(
+                        previousOut4 ?: error("invalid 6388f0 entry index $index"),
+                        previousOut3 ?: error("invalid 6388f0 entry index $index"),
+                        previousOut2 ?: error("invalid 6388f0 entry index $index"),
+                        row59Out1,
+                        row59Out0,
+                    )
+                }
+                else -> {
+                    current642f60 = carried642f60 ?: error("invalid 6388f0 entry index $index")
+                    preimages = Builder6473d0OutputPreimages(
+                        previousOut4 ?: error("invalid 6388f0 entry index $index"),
+                        previousOut3 ?: error("invalid 6388f0 entry index $index"),
+                        previousOut2 ?: error("invalid 6388f0 entry index $index"),
+                        activeOut1Seed ?: error("invalid 6388f0 entry index $index"),
+                        activeOut0Seed ?: error("invalid 6388f0 entry index $index"),
+                    )
+                }
+            }
+
+            val row = builder6388f0SeededCaller64Tail(index, current642f60, preimages, context)
+            if (index == CALLER_LOOP_ROWS - 1 || index == CALLER_LOOP_ROWS * 2 - 1) {
+                val stream = Builder6388f0Seeded63c278Stream(
+                    index,
+                    arg0Prefix,
+                    row.next642f60.x0,
+                    row.next642f60.x2,
+                    scalar,
+                    builder63c278ScheduleWords(arg0Prefix, row.next642f60.x0, row.next642f60.x2, scalar),
+                )
+                if (index == CALLER_LOOP_ROWS - 1) first = stream else second = stream
+            }
+            previousOut4 = row.out4
+            previousOut3 = row.out3
+            previousOut2 = row.out2
+            carried642f60 = row.next642f60
+        }
+
+        return Builder6388f0Seeded63c278Schedules(
+            first ?: error("missing first 6388f0 schedule"),
+            second ?: error("missing second 6388f0 schedule"),
+        )
+    }
+
     fun deriveFrom6388f0SeededCaller64Rows(rows: List<Builder6388f0SeededCaller64Row>, src4: ByteArray = byteArrayOf(0, 0, 0, 1), offset: Int = 0, length: Int = 0x10): ByteArray =
         deriveFrom6388f0SeededCaller64Rows(rows, pre63c278Arg0Source, pre63c278Scalar, src4, offset, length)
 
@@ -2910,8 +3018,8 @@ internal object FirstPairSourceSlice {
         deriveFrom6388f0FirstPairStreamSeeds(seeds, pre63c278Arg0Source, pre63c278Scalar, src4, offset, length)
 
     fun deriveFrom6388f0FirstPairStreamSeeds(seeds: Builder6388f0FirstPairStreamSeeds, arg0: ByteArray, scalar: ULong, src4: ByteArray = byteArrayOf(0, 0, 0, 1), offset: Int = 0, length: Int = 0x10): ByteArray {
-        val rows = builder6388f0SeededCaller64RowsFromFirstPairStreamSeeds(seeds)
-        return deriveFrom6388f0SeededCaller64Rows(rows, arg0, scalar, src4, offset, length)
+        val schedules = builder6388f0Seeded63c278SchedulesFromFirstPairStreamSeeds(seeds, arg0, scalar)
+        return deriveFrom6388f0ScheduleLen32Streams(schedules.first.scheduleWords, schedules.second.scheduleWords, src4, offset, length)
     }
 
     fun phase5RawKeyFrom6388f0FirstPairStreamSeeds(seeds: Builder6388f0FirstPairStreamSeeds, offset: Int = 0): ByteArray =
@@ -4323,6 +4431,34 @@ internal object FirstPairSourceSlice {
 
     fun builder6388f0SharedContextFromBundle(): ByteArray = Tables.shared.sharedContext6388f0
 
+    private val sourceBase6473d0Third: UIntArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        u32WordsFromTableSegments(listOf(0x126340 to 16, 0x125500 to 16, 0x126340 to 16, 0x125500 to 16, 0x126340 to 16, 0x126af8 to 8), Tables.shared)
+    }
+
+    private val sourceBase6473d0Fifth: UIntArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        u32WordsFromTableSegments(listOf(0x124e40 to 16, 0x125c20 to 16, 0x124e40 to 16, 0x125c20 to 16, 0x124e40 to 16, 0x126778 to 8), Tables.shared)
+    }
+
+    private val sourceBase6473d0NinthFirst: UIntArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        u32WordsFromTableSegments(listOf(0x126550 to 16, 0x124f30 to 16, 0x126550 to 16, 0x124f30 to 16, 0x126550 to 16, 0x126c30 to 8), Tables.shared)
+    }
+
+    private val sourceBase6473d0NinthSecond: UIntArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        u32WordsFromTableSegments(listOf(0x124f40 to 16, 0x126610 to 16, 0x124f40 to 16, 0x126610 to 16, 0x124f40 to 16, 0x126d10 to 8), Tables.shared)
+    }
+
+    private val sourceBase642f60Out0: UIntArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        u32WordsFromTableSegments(listOf(0x125450 to 16, 0x126540 to 16, 0x125450 to 16, 0x126540 to 16, 0x125450 to 16, 0x126900 to 8), Tables.shared)
+    }
+
+    private val sourceBase642f60Seventh: UIntArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        u32WordsFromTableSegments(listOf(0x125380 to 16, 0x1256c0 to 16, 0x125380 to 16, 0x1256c0 to 16, 0x125380 to 16, 0x126c70 to 8), Tables.shared)
+    }
+
+    private val defaultMidStageStaticSP9E0SP7D0: Strm by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        midStageStaticSP9E0SP7D0(0x9b3fe2a5f2a431c6uL)
+    }
+
     fun builder642f60OutputsFromBundledContext(in0: ByteArray, in1: ByteArray, in2: ByteArray): Builder642f60Result =
         builder642f60Outputs(in0, in1, in2, builder6388f0SharedContextFromBundle())
 
@@ -4348,7 +4484,7 @@ internal object FirstPairSourceSlice {
         val midStreams = midStageStreamsFromContextSPF0(contextSource, spf0)
         val midSP670 = midStageSP670Words(midStreams)
         val midSP40B = midStageSPA90SP880FromSP40(midSP40)
-        val midStatic = midStageStaticSP9E0SP7D0(0x9b3fe2a5f2a431c6uL)
+        val midStatic = defaultMidStageStaticSP9E0SP7D0
         // midSP40B.a = spa90Words (44), midSP40B.b = sp880Prefix = prefixSumsU64(spa90Words)
         val midSP510 = midStageSP510Words(midSP40B.a, midSP40B.b, midStatic.a, midStatic.b)
 
@@ -4516,7 +4652,7 @@ internal object FirstPairSourceSlice {
 
     private fun out0SourceWords(sixthOutput: ByteArray, contextSource: ByteArray, sp250: UIntArray): UIntArray {
         val t = Tables.shared
-        val base = u32WordsFromTableSegments(listOf(0x125450 to 16, 0x126540 to 16, 0x125450 to 16, 0x126540 to 16, 0x125450 to 16, 0x126900 to 8), t)
+        val base = sourceBase642f60Out0
         return UIntArray(V63) { index ->
             val to = (index * 4) and 0x1c
             val sixthWord = rdU32(sixthOutput, index * 4)
@@ -4533,7 +4669,7 @@ internal object FirstPairSourceSlice {
 
     private fun seventhSourceWords(sp250: UIntArray, contextSource: ByteArray, out0: UIntArray): UIntArray {
         val t = Tables.shared
-        val base = u32WordsFromTableSegments(listOf(0x125380 to 16, 0x1256c0 to 16, 0x125380 to 16, 0x1256c0 to 16, 0x125380 to 16, 0x126c70 to 8), t)
+        val base = sourceBase642f60Seventh
         return UIntArray(V63) { index ->
             val to = (index * 4) and 0x1c
             val contextWord = rdU32(contextSource, 0x208 + index * 4)

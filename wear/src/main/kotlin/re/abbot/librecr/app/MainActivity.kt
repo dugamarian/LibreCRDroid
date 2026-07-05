@@ -50,11 +50,13 @@ import re.abbot.librecr.app.data.WearDisplayFontWeight
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.log.GlucoseLatencyTracer
-import re.abbot.librecr.app.ble.isActiveSensorError
+import re.abbot.librecr.app.ble.ConnectionState
+import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
 import re.abbot.librecr.app.ble.toLastGlucose
 import re.abbot.librecr.app.service.SensorForegroundService
 import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
 import re.abbot.librecr.protocol.TrendArrowShape
+import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -110,11 +112,24 @@ private fun WearScreen() {
     // is only the cold-start fallback (before the service has produced a reading this session).
     val live by LibreCR.manager.glucose.collectAsState()
     val persisted by LibreCR.store.lastGlucoseFlow.collectAsState(initial = null)
-    // A fresh unusable live reading (sensor error) is the newest sensor state: show "SE" instead of
-    // the older stored value. Re-evaluated on every recomposition (burn-in ticker) so it decays.
-    val sensorError = live.isActiveSensorError()
-    val sensorErrorAtMs = if (sensorError) live?.receivedAtMs else null
-    val reading = live?.toLastGlucose() ?: persisted
+    val sensorStatus by LibreCR.store.sensorStatusFlow.collectAsState(initial = null)
+    val connectionState by LibreCR.manager.state.collectAsState()
+    val attention = sensorStatus?.attention ?: Libre3SensorAttention.None
+    val liveUnavailable = live.isActiveGlucoseUnavailable()
+    val baseReading = live?.toLastGlucose() ?: persisted
+    val displayStatus = when {
+        attention != Libre3SensorAttention.None -> WearGlucoseDisplayStatus.SENSOR_ERROR
+        liveUnavailable ||
+            (!isFresh(baseReading) && connectionState.isUnavailableForDisplay()) ->
+            WearGlucoseDisplayStatus.OUT_OF_RANGE
+        else -> WearGlucoseDisplayStatus.NORMAL
+    }
+    val statusAtMs = when (displayStatus) {
+        WearGlucoseDisplayStatus.SENSOR_ERROR -> sensorStatus?.observedAtMs ?: live?.receivedAtMs
+        WearGlucoseDisplayStatus.OUT_OF_RANGE -> live?.receivedAtMs ?: baseReading?.receivedAtMs
+        WearGlucoseDisplayStatus.NORMAL -> null
+    }
+    val reading = if (displayStatus == WearGlucoseDisplayStatus.NORMAL) baseReading else null
     val appearance by LibreCR.appearance.settingsFlow.collectAsState(initial = WearAppearanceSettings())
     var burnInFrameIndex by remember { mutableStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -153,7 +168,7 @@ private fun WearScreen() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            WearReadingLayout(reading, appearance, sensorErrorAtMs)
+            WearReadingLayout(reading, appearance, displayStatus, statusAtMs)
         }
     }
 }
@@ -180,19 +195,20 @@ private val WEAR_BURN_IN_FRAMES = listOf(
 private fun WearReadingLayout(
     reading: SensorStateStore.LastGlucose?,
     appearance: WearAppearanceSettings,
-    sensorErrorAtMs: Long? = null,
+    displayStatus: WearGlucoseDisplayStatus = WearGlucoseDisplayStatus.NORMAL,
+    statusAtMs: Long? = null,
 ) {
-    val sensorError = sensorErrorAtMs != null
-    val mgDl = if (sensorError) null else reading?.mgDL
+    val mgDl = if (displayStatus == WearGlucoseDisplayStatus.NORMAL) reading?.mgDL else null
     val fontWeight = appearance.fontWeight.toComposeFontWeight()
-    val stale = !sensorError && !isFresh(reading)
+    val stale = displayStatus != WearGlucoseDisplayStatus.NORMAL || !isFresh(reading)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
             text = when {
-                sensorError -> "SE"
+                displayStatus == WearGlucoseDisplayStatus.SENSOR_ERROR -> "SE"
+                displayStatus == WearGlucoseDisplayStatus.OUT_OF_RANGE -> "OOR"
                 mgDl != null -> appearance.unit.format(mgDl)
                 else -> "--"
             },
@@ -200,9 +216,13 @@ private fun WearReadingLayout(
             lineHeight = 76.sp,
             fontWeight = fontWeight,
             letterSpacing = 0.sp,
-            color = if (sensorError) WearSensorErrorColor else composeColor(appearance.glucoseColorFor(mgDl)),
+            color = when (displayStatus) {
+                WearGlucoseDisplayStatus.SENSOR_ERROR -> WearSensorErrorColor
+                WearGlucoseDisplayStatus.OUT_OF_RANGE -> composeColor(appearance.timestampStaleColor)
+                WearGlucoseDisplayStatus.NORMAL -> composeColor(appearance.glucoseColorFor(mgDl))
+            },
         )
-        if (!sensorError) {
+        if (displayStatus == WearGlucoseDisplayStatus.NORMAL) {
             TrendArrow(
                 trend = reading?.trend,
                 color = composeColor(appearance.trendColorFor(mgDl)),
@@ -213,16 +233,20 @@ private fun WearReadingLayout(
     }
     Spacer(modifier = Modifier.size(10.dp))
     Text(
-        text = if (sensorError) "--" else formatDelta(reading?.deltaMgDlPerMin, appearance.unit),
+        text = if (displayStatus == WearGlucoseDisplayStatus.NORMAL) {
+            formatDelta(reading?.deltaMgDlPerMin, appearance.unit)
+        } else {
+            "--"
+        },
         fontSize = 22.sp,
         lineHeight = 26.sp,
         fontWeight = fontWeight,
         color = composeColor(appearance.deltaColorFor(mgDl)),
-        modifier = Modifier.alpha(if (reading == null || sensorError) 0.48f else 1f),
+        modifier = Modifier.alpha(if (reading == null || displayStatus != WearGlucoseDisplayStatus.NORMAL) 0.48f else 1f),
     )
     Spacer(modifier = Modifier.size(6.dp))
     Text(
-        text = (sensorErrorAtMs ?: reading?.receivedAtMs)?.takeIf { it > 0L }?.let { formatTimestamp(it) } ?: "--:--",
+        text = (statusAtMs ?: reading?.receivedAtMs)?.takeIf { it > 0L }?.let { formatTimestamp(it) } ?: "--:--",
         fontSize = 16.sp,
         lineHeight = 20.sp,
         fontFamily = FontFamily.Monospace,
@@ -233,6 +257,8 @@ private fun WearReadingLayout(
 
 /** Red accent for the live sensor-error state (matches the complications' error badge color). */
 private val WearSensorErrorColor = Color(0xFFE53935)
+
+private enum class WearGlucoseDisplayStatus { NORMAL, OUT_OF_RANGE, SENSOR_ERROR }
 
 private fun requiredPermissions(): Array<String> {
     val permissions = mutableListOf<String>()
@@ -279,6 +305,13 @@ private fun TrendArrow(
 
 private fun isFresh(reading: SensorStateStore.LastGlucose?, nowMs: Long = System.currentTimeMillis()): Boolean =
     reading != null && reading.receivedAtMs > 0L && nowMs - reading.receivedAtMs < WEAR_STALE_AFTER_MS
+
+private fun ConnectionState.isUnavailableForDisplay(): Boolean =
+    this == ConnectionState.SCANNING ||
+        this == ConnectionState.CONNECTING ||
+        this == ConnectionState.HANDSHAKING ||
+        this == ConnectionState.RECONNECTING ||
+        this == ConnectionState.ERROR
 
 private fun WearDisplayFontWeight.toComposeFontWeight(): FontWeight = when (this) {
     WearDisplayFontWeight.THIN -> FontWeight.Thin

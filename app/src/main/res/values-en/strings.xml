@@ -292,7 +292,11 @@
     <string name="alarm_channel_name">Glucose alarms</string>
     <string name="alarm_channel_desc">Low / high glucose alarms</string>
 
-    <!-- Live unusable-reading state (VALUE_UNAVAILABLE / data-quality): shown instead of a stale value -->
+    <!-- Live unavailable-reading / lost BLE state: shown instead of a stale value -->
+    <string name="sensor_out_of_range">Out of range</string>
+    <string name="sensor_out_of_range_short" translatable="false">OOR</string>
+
+    <!-- Patch-status sensor error: shown only when the sensor reports a real attention/error state -->
     <string name="sensor_error">Sensor error</string>
 
     <!-- Sensor attention (replace / ended / unknown error) — notification + Home card -->

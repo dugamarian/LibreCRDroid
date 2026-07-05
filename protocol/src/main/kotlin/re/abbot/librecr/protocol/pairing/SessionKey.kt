@@ -28,6 +28,54 @@ object SessionKey {
     /** Default bundled 532-byte entry source for the row-0 low-seed path. */
     val bundledEntrySource: ByteArray get() = FirstPairSourceSlice.bundled6388f0LowSeedEntrySource
 
+    private val bundledStaticScalarWindow: ByteArray by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        FirstPairSourceSlice.builder633fa8StaticScalarWindowFromEntrySource(bundledEntrySource)
+    }
+
+    private val bundledRow0LowSeedPreimages: FirstPairSourceSlice.Builder6388f0Row0LowSeedPreimages by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        FirstPairSourceSlice.builder6388f0Row0LowSeedPreimagesFromEntrySource(bundledEntrySource)
+    }
+
+    private fun isBundledEntrySource(entrySource: ByteArray): Boolean =
+        entrySource === bundledEntrySource || entrySource.contentEquals(bundledEntrySource)
+
+    private fun staticScalarWindowFor(entrySource: ByteArray, override: ByteArray?, bundled: Boolean): ByteArray =
+        override ?: if (bundled) {
+            bundledStaticScalarWindow
+        } else {
+            FirstPairSourceSlice.builder633fa8StaticScalarWindowFromEntrySource(entrySource)
+        }
+
+    private fun row0LowSeedPreimagesFor(entrySource: ByteArray, bundled: Boolean): FirstPairSourceSlice.Builder6388f0Row0LowSeedPreimages =
+        if (bundled) {
+            bundledRow0LowSeedPreimages
+        } else {
+            FirstPairSourceSlice.builder6388f0Row0LowSeedPreimagesFromEntrySource(entrySource)
+        }
+
+    private fun firstPairStreamSeeds(
+        nullScalarWindow: ByteArray,
+        staticScalarWindow: ByteArray,
+        nullEntropy11A: ByteArray,
+        nullAttempts: Int,
+        low: FirstPairSourceSlice.Builder6388f0Row0LowSeedPreimages,
+        row0High: FirstPairSourceSlice.Builder6388f0HighSeedStreamStartSeeds,
+        row59High: FirstPairSourceSlice.Builder6388f0HighSeedStreamStartSeeds,
+    ): FirstPairSourceSlice.Builder6388f0FirstPairStreamSeeds =
+        FirstPairSourceSlice.Builder6388f0FirstPairStreamSeeds(
+            nullScalarWindow,
+            staticScalarWindow,
+            nullEntropy11A,
+            nullAttempts,
+            low.out4,
+            low.out3,
+            low.out2,
+            row0High.out1,
+            row0High.out0,
+            row59High.out1,
+            row59High.out0,
+        )
+
     class FirstPairNativeEphemeral(
         val phoneEphemeralPub65: ByteArray,
         val nullEntropy11A: ByteArray,
@@ -76,9 +124,12 @@ object SessionKey {
     ): FirstPairPhase5Material {
         val row0 = uncompressedPointXYBE(sensorEphemeralPub65, "sensor ephemeral")
         val row59 = uncompressedPointXYBE(sensorStaticPub65, "sensor static")
-        val staticScalar = staticScalarWindow ?: FirstPairSourceSlice.builder633fa8StaticScalarWindowFromEntrySource(entrySource)
-        val seeds = FirstPairSourceSlice.builder6388f0FirstPairStreamSeedsFromScalarsAndSensorPoints(
-            entrySource, nullScalarWindow, staticScalar, row0, row59, nullEntropy11A, nullAttempts)
+        val bundled = isBundledEntrySource(entrySource)
+        val staticScalar = staticScalarWindowFor(entrySource, staticScalarWindow, bundled)
+        val low = row0LowSeedPreimagesFor(entrySource, bundled)
+        val row0High = FirstPairSourceSlice.builder6388f0HighSeedStreamStartSeedsFromScalarP256(nullScalarWindow, row0)
+        val row59High = FirstPairSourceSlice.builder6388f0HighSeedStreamStartSeedsFromScalarP256(staticScalar, row59)
+        val seeds = firstPairStreamSeeds(nullScalarWindow, staticScalar, nullEntropy11A, nullAttempts, low, row0High, row59High)
         val source = FirstPairSourceSlice.deriveFrom6388f0FirstPairStreamSeeds(seeds)
         val rawKey = Phase5KeySchedule.deriveRawKey(source)
         return FirstPairPhase5Material(source, rawKey, nullEntropy11A, nullScalarWindow, nullAttempts)
@@ -95,10 +146,11 @@ object SessionKey {
     ): FirstPairPhase5Material = coroutineScope {
         val row0 = uncompressedPointXYBE(sensorEphemeralPub65, "sensor ephemeral")
         val row59 = uncompressedPointXYBE(sensorStaticPub65, "sensor static")
-        val staticScalar = staticScalarWindow ?: FirstPairSourceSlice.builder633fa8StaticScalarWindowFromEntrySource(entrySource)
+        val bundled = isBundledEntrySource(entrySource)
+        val staticScalar = staticScalarWindowFor(entrySource, staticScalarWindow, bundled)
 
         val lowDeferred = async {
-            FirstPairSourceSlice.builder6388f0Row0LowSeedPreimagesFromEntrySource(entrySource)
+            row0LowSeedPreimagesFor(entrySource, bundled)
         }
         val row0HighDeferred = async {
             FirstPairSourceSlice.builder6388f0HighSeedStreamStartSeedsFromScalarP256(nullScalarWindow, row0)
@@ -110,19 +162,7 @@ object SessionKey {
         val low = lowDeferred.await()
         val row0High = row0HighDeferred.await()
         val row59High = row59HighDeferred.await()
-        val seeds = FirstPairSourceSlice.Builder6388f0FirstPairStreamSeeds(
-            nullScalarWindow,
-            staticScalar,
-            nullEntropy11A,
-            nullAttempts,
-            low.out4,
-            low.out3,
-            low.out2,
-            row0High.out1,
-            row0High.out0,
-            row59High.out1,
-            row59High.out0,
-        )
+        val seeds = firstPairStreamSeeds(nullScalarWindow, staticScalar, nullEntropy11A, nullAttempts, low, row0High, row59High)
         val source = FirstPairSourceSlice.deriveFrom6388f0FirstPairStreamSeeds(seeds)
         val rawKey = Phase5KeySchedule.deriveRawKey(source)
         FirstPairPhase5Material(source, rawKey, nullEntropy11A, nullScalarWindow, nullAttempts)
