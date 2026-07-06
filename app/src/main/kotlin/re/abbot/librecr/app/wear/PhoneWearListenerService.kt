@@ -11,6 +11,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.alarm.SensorAttentionNotifier
+import re.abbot.librecr.app.alarm.StalenessWatchdog
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.data.ImportedSession
 import re.abbot.librecr.app.log.BleLog
@@ -75,6 +76,8 @@ class PhoneWearListenerService : WearableListenerService() {
                 val reading = WearDataSync.parseGlucose(bytes)
                 if (publishLatest) {
                     LibreCR.manager.acceptRemoteGlucose(reading)
+                    // Any live relay (even a duplicate) proves the watch→phone pipeline is alive.
+                    StalenessWatchdog.onFreshReading(this@PhoneWearListenerService)
                 }
                 val previous = LibreCR.store.loadLastGlucose()
                 if (previous != null && reading.lifeCount > previous.lifeCount + 1) {
@@ -120,6 +123,9 @@ class PhoneWearListenerService : WearableListenerService() {
             runCatching {
                 val event = WearDataSync.parseGlucoseUnavailable(bytes)
                 LibreCR.manager.acceptRemoteGlucoseUnavailable(event)
+                // An unusable reading is still a liveness proof — sensor-error states must not
+                // double-alert as staleness (SensorAttentionNotifier owns real sensor errors).
+                StalenessWatchdog.onFreshReading(this@PhoneWearListenerService)
                 BleLog.log(
                     "PHONE_RECV_UNAVAILABLE lc=${event.lifeCount} source=$source " +
                         "reason=${event.reason} ${event.detail}",

@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.alarm.GlucoseAlarmManager
+import re.abbot.librecr.app.alarm.StalenessWatchdog
 import re.abbot.librecr.app.data.AlarmSettings
 import re.abbot.librecr.app.ui.common.LocalAppSettings
 import re.abbot.librecr.app.ui.common.SectionCard
@@ -107,6 +108,15 @@ fun AlarmsScreen(modifier: Modifier = Modifier) {
             ThresholdSlider(stringResource(R.string.alarms_persistent_low_th), a.persistentLowMgDl, 60..120, unit) { persist(a.copy(persistentLowMgDl = it)) }
             DurationSlider(stringResource(R.string.alarms_persistent_low_dur), a.persistentLowMinutes) { persist(a.copy(persistentLowMinutes = it)) }
             Text(stringResource(R.string.alarms_persistent_desc), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        SectionCard(stringResource(R.string.alarms_staleness_section)) {
+            SettingsSwitchRow(stringResource(R.string.alarms_staleness), a.stalenessEnabled) {
+                persist(a.copy(stalenessEnabled = it))
+                // Immediate side effect: OFF clears any scheduled check + posted alert; ON arms now.
+                StalenessWatchdog.onSettingChanged(ctx, it)
+            }
+            Text(stringResource(R.string.alarms_staleness_desc), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         }
 
         SectionCard(stringResource(R.string.alarms_test_section)) {

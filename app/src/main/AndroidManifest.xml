@@ -94,11 +94,14 @@
             </intent-filter>
         </receiver>
 
-        <!-- Full-screen glucose alarm, visible over the lock screen. -->
+        <!-- Full-screen glucose alarm, visible over the lock screen. configChanges keeps the
+             activity alive across rotation (portrait ↔ landscape standby) so the alarm sound
+             and vibration are not restarted mid-ring. -->
         <activity
             android:name=".alarm.AlarmActivity"
             android:exported="false"
             android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:launchMode="singleInstance"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
@@ -106,6 +109,11 @@
 
         <receiver
             android:name=".alarm.AlarmActionReceiver"
+            android:exported="false" />
+
+        <!-- Staleness safety net: fires when no glucose liveness event arrives for the threshold. -->
+        <receiver
+            android:name=".alarm.StalenessWatchdog$Receiver"
             android:exported="false" />
 
         <!-- Standby (nightstand) shown over the lock screen on a wireless charger. -->

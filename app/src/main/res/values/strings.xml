@@ -281,6 +281,47 @@
     <string name="insight_a1c_estimate">HbA1c estimat ridicat</string>
     <string name="insight_a1c_estimate_desc">GMI %1$.1f%%. Discută cu medicul.</string>
 
+    <!-- Glucose alarm notification / full-screen alarm -->
+    <string name="alarm_title_urgent_low">Glicemie foarte scăzută!</string>
+    <string name="alarm_title_low">Glicemie scăzută</string>
+    <string name="alarm_title_high">Glicemie ridicată</string>
+    <string name="alarm_title_persistent_high">Glicemie ridicată persistent</string>
+    <string name="alarm_title_persistent_low">Glicemie scăzută persistent</string>
+    <string name="alarm_action_snooze">Amână</string>
+    <string name="alarm_action_snooze_min">Amână %1$d min</string>
+    <string name="alarm_action_stop">Oprește</string>
+    <string name="alarm_channel_name">Alarme glicemie</string>
+    <string name="alarm_channel_desc">Alarme glicemie scăzută / ridicată</string>
+
+    <!-- Staleness safety net: no glucose liveness event for the threshold -->
+    <string name="staleness_channel_name">Alertă lipsă citiri</string>
+    <string name="staleness_channel_desc">Alertă când citirile de glicemie nu mai sosesc</string>
+    <string name="staleness_alert_title">Fără citiri de glicemie</string>
+    <string name="staleness_alert_detail">Nicio citire nouă de %1$d min. Verifică ceasul sau senzorul.</string>
+    <string name="alarms_staleness_section">Lipsă citiri</string>
+    <string name="alarms_staleness">Alertă lipsă citiri</string>
+    <string name="alarms_staleness_desc">Notificare când citirile nu mai sosesc de ~10 minute. Respectă comutatorul general și orele active.</string>
+
+    <!-- Live unavailable-reading / lost BLE state: shown instead of a stale value -->
+    <string name="sensor_out_of_range">Out of range</string>
+    <string name="sensor_out_of_range_short" translatable="false">OOR</string>
+
+    <!-- Patch-status sensor error: shown only when the sensor reports a real attention/error state -->
+    <string name="sensor_error">Eroare senzor</string>
+    <string name="sensor_error_short" translatable="false">SE</string>
+
+    <!-- Sensor attention (replace / ended / unknown error) — notification + Home card -->
+    <string name="sensor_attention_check_title">Verifică senzorul</string>
+    <string name="sensor_attention_check_detail">Senzorul raportează o problemă de inserție.</string>
+    <string name="sensor_attention_ended_title">Senzor încheiat</string>
+    <string name="sensor_attention_ended_detail">Sesiunea senzorului s-a încheiat.</string>
+    <string name="sensor_attention_replace_title">Înlocuiește senzorul</string>
+    <string name="sensor_attention_replace_detail">Senzorul a raportat o eroare și trebuie înlocuit.</string>
+    <string name="sensor_attention_unknown_title">Eroare senzor</string>
+    <string name="sensor_attention_unknown_detail">Cod necunoscut raportat de senzor (%1$d).</string>
+    <string name="sensor_status_channel_name">Stare senzor</string>
+    <string name="sensor_status_channel_desc">Notificări despre starea senzorului (înlocuire / erori)</string>
+
     <!-- One-time use agreement / medical disclaimer (shown before first use) -->
     <string name="agreement_title">Acord de utilizare</string>
     <string name="agreement_accept">Sunt de acord</string>

@@ -77,7 +77,11 @@ object WearDataSync {
     }
 
     fun sendSession(context: Context, session: ImportedSession, startOnWatch: Boolean = false) {
-        val payload = session.toProvisioningJson().toByteArray()
+        // toJson (not toProvisioningJson) so a deliberately attached phase5RawKey survives the wire:
+        // the watch handoff relays the phone's CURRENT session key, letting the watch resume via the
+        // cheap cached path — its 32-bit CPU cannot finish a full first-pair derivation (~31s) before
+        // the sensor's ~24s mid-handshake patience runs out. All other callers pass keyless sessions.
+        val payload = session.toJson().toByteArray()
         val path = if (startOnWatch) PATH_START else PATH_SESSION
         putDataItem(context, path, payload)
         sendToNearbyNodes(

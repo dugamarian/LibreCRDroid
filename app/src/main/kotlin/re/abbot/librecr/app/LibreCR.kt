@@ -69,14 +69,26 @@ object LibreCR {
                 .collect { WearDataSync.sendAppearance(app, it) }
         }
         appScope.launch {
+            // Pair the persisted reading with the live unavailable timestamp. Patch-status attention
+            // remains the separate source of truth for real sensor errors.
+            val glucoseWithUnavailable = combine(manager.glucose, store.lastGlucoseFlow) { live, persisted ->
+                persisted to live?.takeIf { !it.usable }?.receivedAtMs
+            }
             combine(
                 settings.settingsFlow,
-                store.lastGlucoseFlow,
+                glucoseWithUnavailable,
                 store.sensorLifecycleFlow,
                 store.sessionFlow,
                 liveUpdateTicker(),
-            ) { appSettings, reading, lifecycle, session, _ ->
-                LiveUpdatesNotifier.State(appSettings.liveUpdates, appSettings.unit, reading, lifecycle, session)
+            ) { appSettings, (reading, unavailableAtMs), lifecycle, session, _ ->
+                LiveUpdatesNotifier.State(
+                    appSettings.liveUpdates,
+                    appSettings.unit,
+                    reading,
+                    lifecycle,
+                    session,
+                    unavailableAtMs,
+                )
             }.collect { state ->
                 LiveUpdatesNotifier.update(app, state)
             }

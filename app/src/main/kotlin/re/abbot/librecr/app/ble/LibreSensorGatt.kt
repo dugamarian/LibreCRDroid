@@ -41,12 +41,20 @@ object LibreSensorGatt {
     )
 
     /**
-     * Data-plane notifications enabled once after Phase 6. Android also keeps
-     * historical and clinical enabled because both are consumed for backfill.
+     * Data-plane notifications enabled once after Phase 6, in consumption order.
+     *
+     * Every CCCD enable after the first rides the sensor-renegotiated slow link (~2s per listen
+     * window, observed in the field), so the order is critical-first: PATCH_CONTROL must stay
+     * first (arms the command channel; also appears to trigger the sensor's renegotiation),
+     * then the glucose pipeline (GLUCOSE_DATA + PATCH_STATUS), then the backfill channels.
+     *
+     * EVENT_LOG and FACTORY_DATA are deliberately ABSENT (2026-07-05): no collector consumes
+     * them, each cost one slow-link round trip per reconnect, and a timed-out EVENT_LOG enable
+     * is precisely what killed a field session. If the sensor ever misbehaves without them
+     * (no 177a stream, status=19 right after CCCD_REARM), re-add them here first.
      */
     val dataPlaneNotifying = listOf(
-        PATCH_CONTROL, EVENT_LOG, HISTORIC_DATA, CLINICAL_DATA,
-        FACTORY_DATA, GLUCOSE_DATA, PATCH_STATUS,
+        PATCH_CONTROL, GLUCOSE_DATA, PATCH_STATUS, HISTORIC_DATA, CLINICAL_DATA,
     )
 
     /**

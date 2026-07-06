@@ -41,6 +41,8 @@ object LiveUpdatesNotifier {
         val reading: SensorStateStore.LastGlucose?,
         val lifecycle: SensorStateStore.SensorLifecycleSnapshot?,
         val session: ImportedSession?,
+        /** When the live glucose state is unavailable: its timestamp; null when readings are good. */
+        val unavailableAtMs: Long? = null,
     )
 
     /**
@@ -56,6 +58,15 @@ object LiveUpdatesNotifier {
     ) {
         val app = context.applicationContext
         val settings = state.settings
+        // A fresh unavailable live reading is the newest glucose state: surface "out of range"
+        // instead of keeping the previous value on the lock screen.
+        val unavailable = settings.enabled && state.unavailableAtMs?.let { isFreshGlucose(it) } == true
+        if (unavailable) {
+            ensureChannel(app)
+            maybePosted = true
+            notificationManager(app).notify(NOTIFICATION_ID, buildUnavailableNotification(app, state))
+            return
+        }
         val reading = state.reading?.takeIf { isFreshGlucose(it.receivedAtMs) }
         if (!settings.enabled || reading == null) {
             if (maybePosted) {
@@ -71,6 +82,31 @@ object LiveUpdatesNotifier {
             NOTIFICATION_ID,
             buildNotification(app, displayState),
         )
+    }
+
+    private fun buildUnavailableNotification(context: Context, state: State): Notification {
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            120,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val sensorLabel = sensorProgress(state).label(context)
+        val builder = Notification.Builder(context, CHANNEL_ID)
+            .setContentTitle(context.getString(R.string.sensor_out_of_range))
+            .setSubText(sensorLabel)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setLocalOnly(true)
+            .setShowWhen(false)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setContentIntent(contentIntent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && state.settings.statusChipEnabled) {
+            builder.setShortCriticalText(context.getString(R.string.sensor_out_of_range_short))
+        }
+        return builder.build()
     }
 
     fun canPostPromotedNotifications(context: Context): Boolean? {

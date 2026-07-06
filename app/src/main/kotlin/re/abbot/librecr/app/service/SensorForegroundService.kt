@@ -19,6 +19,10 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.MainActivity
+import re.abbot.librecr.app.R
+import re.abbot.librecr.app.ble.ConnectionState
+import re.abbot.librecr.app.ble.isUnavailableForGlucoseDisplay
+import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.app.log.BleLog
 
 /**
@@ -66,9 +70,17 @@ class SensorForegroundService : Service() {
                 combine(
                     LibreCR.manager.glucose,
                     LibreCR.settings.settingsFlow,
-                ) { glucose, settings -> glucose to settings.unit }.collectLatest { (g, unit) ->
-                    val mg = g?.mgDL
-                    notify(if (mg != null) "${unit.formatWithUnit(mg)}  ${g.trend}" else "no reading yet")
+                    LibreCR.manager.state,
+                ) { glucose, settings, state -> Triple(glucose, settings.unit, state) }.collectLatest { (g, unit, state) ->
+                    val text = when {
+                        g == null && state.isUnavailableForGlucoseDisplay() -> getString(R.string.sensor_out_of_range)
+                        g == null -> "no reading yet"
+                        !g.usable -> getString(R.string.sensor_out_of_range)
+                        state.isUnavailableForGlucoseDisplay() && !isFreshGlucose(g.receivedAtMs) -> getString(R.string.sensor_out_of_range)
+                        g.mgDL != null -> "${unit.formatWithUnit(g.mgDL)}  ${g.trend}"
+                        else -> "no reading yet"
+                    }
+                    notify(text)
                 }
             }
         }

@@ -204,10 +204,18 @@ object WearDataSync {
         )
     }
 
-    /** Ship the watch's in-memory log buffer (newest [LOG_SYNC_MAX_LINES]) to the phone's log viewer. */
-    fun sendLog(context: Context) {
-        val payload = BleLog.snapshot().takeLast(LOG_SYNC_MAX_LINES).joinToString("\n").toByteArray()
-        BleLog.log("wear: sending watch log to phone (${payload.size} bytes)")
+    /**
+     * Ship the watch's in-memory log buffer (newest [LOG_SYNC_MAX_LINES]) to the phone's log viewer.
+     * With [eventsOnly] only the `[WEAR-BLE]` connection narrative ships — disconnects (time, status,
+     * reason, transport), reconnect attempts/success, watchdog — which is what the automatic
+     * post-reconnect push uses: small, readable, and light on the shared antenna. The phone's
+     * on-demand pull keeps the full verbose buffer for deep post-mortems.
+     */
+    fun sendLog(context: Context, eventsOnly: Boolean = false) {
+        val lines = BleLog.snapshot()
+        val selected = if (eventsOnly) lines.filter { it.contains(EVENT_LOG_MARKER) } else lines
+        val payload = selected.takeLast(LOG_SYNC_MAX_LINES).joinToString("\n").toByteArray()
+        BleLog.log("wear: sending watch log to phone (${payload.size} bytes, eventsOnly=$eventsOnly)")
         sendToNearbyNodes(context, PATH_LOG, payload)
     }
 
@@ -454,6 +462,8 @@ object WearDataSync {
 
     private const val GLUCOSE_BUFFER_SIZE = 60
     private const val GLUCOSE_RETRY_INTERVAL_MS = 20_000L
+    /** Tag selecting the connection-narrative lines for the events-only log ship. */
+    private const val EVENT_LOG_MARKER = "[WEAR-BLE]"
 
     private fun Int.floorMod(modulus: Int): Int {
         val remainder = this % modulus

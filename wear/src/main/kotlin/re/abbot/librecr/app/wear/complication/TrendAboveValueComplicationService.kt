@@ -14,6 +14,7 @@ import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import androidx.wear.watchface.complications.datasource.SuspendingComplicationDataSourceService
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.MainActivity
+import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
 import re.abbot.librecr.app.ble.toLastGlucose
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.WearAppearanceSettings
@@ -32,14 +33,20 @@ class TrendAboveValueComplicationService : SuspendingComplicationDataSourceServi
 
     override suspend fun onComplicationRequest(request: ComplicationRequest): ComplicationData {
         // In-memory live value first (instant); DataStore only when the service isn't running (cold).
-        val reading = LibreCR.manager.glucose.value?.toLastGlucose() ?: LibreCR.store.loadLastGlucose()
+        // A fresh unavailable live reading shows "OOR"; real sensor errors come from patch-status.
+        val live = LibreCR.manager.glucose.value
         val appearance = LibreCR.appearance.current()
-        val attention = LibreCR.store.loadSensorStatus()?.attention ?: Libre3SensorAttention.None
+        val status = LibreCR.store.loadSensorStatus()
+        val attention = status?.attention ?: Libre3SensorAttention.None
+        val sensorError = attention != Libre3SensorAttention.None
+        val liveUnavailable = live.isActiveGlucoseUnavailable()
+        val reading = if (sensorError || liveUnavailable) null else live?.toLastGlucose() ?: LibreCR.store.loadLastGlucose()
+        val unavailable = !sensorError && (liveUnavailable || !GlucoseComplicationRenderer.isFresh(reading))
         // The OS asked us for fresh complication data — i.e. the watch face / AOD is about
         // to repaint with this reading. Gap to STORE_UPDATED is the complication-refresh throttle.
         reading?.let { GlucoseLatencyTracer.mark(it.lifeCount, GlucoseLatencyTracer.Stage.AOD_UPDATED) }
-        BleLog.log("WATCH_COMPLICATION_REQUEST lc=${reading?.lifeCount ?: -1} service=TrendAboveValueComplicationService type=${request.complicationType}")
-        return buildData(request.complicationType, reading, tapAction(), appearance, attention)
+        BleLog.log("WATCH_COMPLICATION_REQUEST lc=${reading?.lifeCount ?: -1} sensorError=$sensorError unavailable=$unavailable service=TrendAboveValueComplicationService type=${request.complicationType}")
+        return buildData(request.complicationType, reading, tapAction(), appearance, attention, sensorError, unavailable)
     }
 
     private fun buildData(
@@ -48,12 +55,16 @@ class TrendAboveValueComplicationService : SuspendingComplicationDataSourceServi
         tapAction: PendingIntent?,
         appearance: WearAppearanceSettings = WearAppearanceSettings(),
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
+        sensorError: Boolean = false,
+        unavailable: Boolean = false,
     ): ComplicationData {
         val image = Icon.createWithBitmap(
-            GlucoseComplicationRenderer.buildTrendValueBitmap(this, reading, appearance, attention = attention),
+            GlucoseComplicationRenderer.buildTrendValueBitmap(
+                this, reading, appearance, attention = attention, sensorError = sensorError, unavailable = unavailable,
+            ),
         )
         val description = PlainComplicationText.Builder(
-            GlucoseComplicationRenderer.contentDescription("Glucose trend above value", reading, attention, appearance.unit)
+            GlucoseComplicationRenderer.contentDescription("Glucose trend above value", reading, attention, appearance.unit, sensorError, unavailable)
         ).build()
         return when (type) {
             ComplicationType.PHOTO_IMAGE -> PhotoImageComplicationData.Builder(image, description)

@@ -37,11 +37,16 @@ import kotlinx.coroutines.launch
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.isFreshGlucose
+import re.abbot.librecr.app.ble.ConnectionState
+import re.abbot.librecr.app.ble.GlucoseDisplayStatus
 import re.abbot.librecr.app.ble.GlucoseUi
+import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
+import re.abbot.librecr.app.ble.isUnavailableForGlucoseDisplay
 import re.abbot.librecr.protocol.TrendArrowShape
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.log.BleLog
+import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -57,6 +62,8 @@ class AodGlucoseOverlayService : AccessibilityService() {
     private val history = ArrayDeque<GlucoseUi>()
     private var localReading: GlucoseUi? = null
     private var storedReading: GlucoseUi? = null
+    private var sensorAttention: Libre3SensorAttention = Libre3SensorAttention.None
+    private var connectionState: ConnectionState = ConnectionState.IDLE
     private var burnInIndex = 0
     private var currentPosition = AodSettings.POSITION_TOP
     private var currentUnit: GlucoseUnit = GlucoseUnit.MG_DL
@@ -64,8 +71,27 @@ class AodGlucoseOverlayService : AccessibilityService() {
     private lateinit var prefs: SharedPreferences
 
     private val currentReading: GlucoseUi?
-        get() = localReading?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs) }
-            ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }
+        get() {
+            val local = localReading
+            if (sensorAttention != Libre3SensorAttention.None) {
+                return local?.copy(mgDL = null, usable = false)
+                    ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }?.copy(mgDL = null, usable = false)
+            }
+            // A fresh unavailable live reading is the newest glucose state: render "OOR" instead of
+            // falling back to the older stored value.
+            if (local.isActiveGlucoseUnavailable()) return local?.copy(mgDL = null)
+            return local?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs) }
+                ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }
+        }
+
+    private val currentDisplayStatus: GlucoseDisplayStatus
+        get() = when {
+            sensorAttention != Libre3SensorAttention.None -> GlucoseDisplayStatus.SENSOR_ERROR
+            localReading.isActiveGlucoseUnavailable() ||
+                (currentReading == null && connectionState.isUnavailableForGlucoseDisplay()) ->
+                GlucoseDisplayStatus.OUT_OF_RANGE
+            else -> GlucoseDisplayStatus.NORMAL
+        }
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         val settings = AodSettings.load(this)
@@ -76,7 +102,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (aodView != null) {
-                aodView?.setReading(currentReading, history.toList())
+                aodView?.setReading(currentReading, history.toList(), currentDisplayStatus)
                 advanceBurnIn()
                 updateLayoutPosition()
                 handler.postDelayed(this, PERIODIC_REFRESH_MS)
@@ -172,16 +198,32 @@ class AodGlucoseOverlayService : AccessibilityService() {
     }
 
     private fun observeGlucose() {
+        // The two reading collectors feed only the CURRENT value (live preferred, stored fallback).
+        // The mini-chart history has a single source of truth — the store's history blob, which is
+        // appended on every reading anyway — so no manual per-reading append here (it was redundant:
+        // the next replaceHistory rebuilt the deque from the blob regardless).
         scope.launch {
             LibreCR.manager.glucose.collectLatest { reading ->
                 localReading = reading
-                acceptReading(reading)
+                publishReading()
+            }
+        }
+        scope.launch {
+            LibreCR.manager.state.collectLatest {
+                connectionState = it
+                publishReading()
             }
         }
         scope.launch {
             LibreCR.store.lastGlucoseFlow.collectLatest { last ->
                 storedReading = last?.toGlucoseUi()
-                acceptReading(storedReading)
+                publishReading()
+            }
+        }
+        scope.launch {
+            LibreCR.store.sensorStatusFlow.collectLatest {
+                sensorAttention = it?.attention ?: Libre3SensorAttention.None
+                publishReading()
             }
         }
         scope.launch {
@@ -200,18 +242,6 @@ class AodGlucoseOverlayService : AccessibilityService() {
         }
     }
 
-    private fun acceptReading(reading: GlucoseUi?) {
-        if (reading == null) {
-            publishReading()
-            return
-        }
-        if (reading.mgDL != null && history.lastOrNull()?.receivedAtMs != reading.receivedAtMs) {
-            history.addLast(reading)
-            while (history.size > MAX_HISTORY_POINTS) history.removeFirst()
-        }
-        publishReading()
-    }
-
     private fun replaceHistory(readings: List<GlucoseUi>) {
         history.clear()
         readings.takeLast(MAX_HISTORY_POINTS).forEach { history.addLast(it) }
@@ -219,7 +249,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
     }
 
     private fun publishReading() {
-        aodView?.setReading(currentReading, history.toList())
+        aodView?.setReading(currentReading, history.toList(), currentDisplayStatus)
     }
 
     private fun refreshVisibility() {
@@ -240,7 +270,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
             val view = AodGlucoseView(this, bold, regular).apply {
                 setAodSettings(settings)
                 setGlucoseUnit(currentUnit)
-                setReading(currentReading, history.toList())
+                setReading(currentReading, history.toList(), currentDisplayStatus)
             }
             val lp = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -384,6 +414,7 @@ private fun SensorStateStore.LastGlucose.toGlucoseUi(): GlucoseUi =
         usable = true,
         receivedAtMs = receivedAtMs,
         deltaMgDlPerMin = deltaMgDlPerMin,
+        chartMgDL = chartMgDL,
     )
 
 private class AodGlucoseView(
@@ -426,6 +457,7 @@ private class AodGlucoseView(
     private var glucoseUnit: GlucoseUnit = GlucoseUnit.MG_DL
     private var reading: GlucoseUi? = null
     private var history: List<GlucoseUi> = emptyList()
+    private var displayStatus: GlucoseDisplayStatus = GlucoseDisplayStatus.NORMAL
     private var burnInAlpha = 0.96f
 
     fun setAodSettings(settings: AodSettings) {
@@ -440,9 +472,14 @@ private class AodGlucoseView(
         invalidate()
     }
 
-    fun setReading(reading: GlucoseUi?, history: List<GlucoseUi>) {
+    fun setReading(
+        reading: GlucoseUi?,
+        history: List<GlucoseUi>,
+        displayStatus: GlucoseDisplayStatus = this.displayStatus,
+    ) {
         this.reading = reading
         this.history = history
+        this.displayStatus = displayStatus
         requestLayout()
         invalidate()
     }
@@ -476,14 +513,15 @@ private class AodGlucoseView(
         canvas.drawText("LibreCRDroid", pad + 14f.dpToPx(context), headerBaseline, labelPaint)
         canvas.drawText(age, width - pad - labelPaint.measureText(age), headerBaseline, labelPaint)
 
-        val glucose = reading?.mgDL?.let { glucoseUnit.format(it) } ?: "SE"
+        val hasValue = reading?.mgDL != null
+        val glucose = primaryText()
         val unit = glucoseUnit.label
         val valueBaseline = headerBaseline + 58f.dpToPx(context) * settings.textScale.coerceIn(0.75f, 2.2f)
         val rowCenterY = valueBaseline + (valuePaint.ascent() + valuePaint.descent()) / 2f
-        val showUnit = settings.showSecondary
-        val showArrow = settings.showArrow && TrendArrowShape.hasArrow(reading?.trend)
+        val showUnit = hasValue && settings.showSecondary
+        val showArrow = hasValue && settings.showArrow && TrendArrowShape.hasArrow(reading?.trend)
         val arrowSize = if (showArrow) 34f.dpToPx(context) * settings.arrowScale * settings.textScale.coerceIn(0.75f, 2f) else 0f
-        val delta = deltaText(history, glucoseUnit)
+        val delta = if (hasValue) deltaText(history, glucoseUnit) else null
         val unitWidth = if (showUnit) metaPaint.measureText(unit) + 9f.dpToPx(context) else 0f
         val arrowChipWidth = if (showArrow) arrowSize + 18f.dpToPx(context) else 0f
         val deltaChipWidth = delta?.let { metaPaint.measureText(it) + 20f.dpToPx(context) + 7f.dpToPx(context) } ?: 0f
@@ -552,9 +590,18 @@ private class AodGlucoseView(
         arrowPaint.strokeWidth = 3.8f.dpToPx(context) * settings.arrowScale
     }
 
+    private fun primaryText(): String =
+        reading?.mgDL?.let { glucoseUnit.format(it) } ?: when (displayStatus) {
+            GlucoseDisplayStatus.SENSOR_ERROR -> context.getString(R.string.sensor_error_short)
+            GlucoseDisplayStatus.OUT_OF_RANGE -> context.getString(R.string.sensor_out_of_range_short)
+            GlucoseDisplayStatus.NORMAL -> "--"
+        }
+
     private fun drawChart(canvas: Canvas) {
+        // Chart line only: the uncapped value so deep hypos below the ~40 "LO" floor stay visible.
+        // The headline number and colors keep the capped mgDL.
         val points = history.mapNotNull { g ->
-            val mg = g.mgDL ?: return@mapNotNull null
+            val mg = g.chartMgDL ?: g.mgDL ?: return@mapNotNull null
             if (mg <= 0) return@mapNotNull null
             g.receivedAtMs to mg
         }

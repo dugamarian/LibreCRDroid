@@ -31,13 +31,16 @@ object GlucoseComplicationRenderer {
         reading != null && reading.receivedAtMs > 0L && nowMs - reading.receivedAtMs < STALE_AFTER_MS
 
     fun timeText(reading: SensorStateStore.LastGlucose?): String =
-        reading?.receivedAtMs?.takeIf { it > 0L }?.let { timeFormatter.format(Instant.ofEpochMilli(it)) } ?: "--:--"
+        timeText(reading?.receivedAtMs ?: 0L)
+
+    private fun timeText(atMs: Long): String =
+        atMs.takeIf { it > 0L }?.let { timeFormatter.format(Instant.ofEpochMilli(it)) } ?: "--:--"
 
     fun deltaText(reading: SensorStateStore.LastGlucose?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String =
         formatDelta(reading?.deltaMgDlPerMin, unit)
 
     fun valueText(reading: SensorStateStore.LastGlucose?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String =
-        if (isFresh(reading)) reading?.mgDL?.let { unit.format(it) } ?: "S.E." else "S.E."
+        if (isFresh(reading)) reading?.mgDL?.let { unit.format(it) } ?: "OOR" else "OOR"
 
     fun buildAgeDeltaBitmap(
         context: Context,
@@ -45,8 +48,17 @@ object GlucoseComplicationRenderer {
         settings: WearAppearanceSettings = WearAppearanceSettings(),
         size: Int = 150,
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
+        sensorError: Boolean = false,
+        sensorErrorAtMs: Long = 0L,
+        unavailable: Boolean = false,
+        unavailableAtMs: Long = 0L,
     ): Bitmap {
         val fresh = isFresh(reading)
+        val statusAtMs = when {
+            sensorError -> sensorErrorAtMs
+            unavailable -> unavailableAtMs
+            else -> 0L
+        }
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -54,14 +66,24 @@ object GlucoseComplicationRenderer {
         }
         canvas.drawColor(Color.TRANSPARENT)
 
-        paint.color = settings.timestampColor(stale = !fresh)
+        paint.color = when {
+            sensorError -> COLOR_ERROR
+            unavailable -> settings.timestampStaleColor
+            else -> settings.timestampColor(stale = !fresh)
+        }
         paint.typeface = typefaceFor(context, settings.fontWeight)
         paint.textSize = size * 0.34f * TIMESTAMP_TEXT_SCALE
-        drawCenteredText(canvas, timeText(reading), size / 2f, size * 0.27f, paint)
-        paint.color = settings.deltaColorFor(reading?.mgDL)
+        val time = if (sensorError || unavailable) timeText(statusAtMs) else timeText(reading)
+        drawCenteredText(canvas, time, size / 2f, size * 0.27f, paint)
+        paint.color = if (sensorError || unavailable) settings.timestampStaleColor else settings.deltaColorFor(reading?.mgDL)
         paint.typeface = typefaceFor(context, settings.fontWeight)
         paint.textSize = size * 0.36f
-        drawCenteredText(canvas, deltaText(reading, settings.unit), size / 2f, size * 0.84f, paint)
+        val delta = when {
+            sensorError -> "--"
+            unavailable -> "OOR"
+            else -> deltaText(reading, settings.unit)
+        }
+        drawCenteredText(canvas, delta, size / 2f, size * 0.67f, paint)
         attentionBadge(attention)?.let { drawAttentionDot(canvas, size, it.color) }
         return bitmap
     }
@@ -72,6 +94,8 @@ object GlucoseComplicationRenderer {
         settings: WearAppearanceSettings = WearAppearanceSettings(),
         size: Int = 150,
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
+        sensorError: Boolean = false,
+        unavailable: Boolean = false,
     ): Bitmap {
         val fresh = isFresh(reading)
         val badge = attentionBadge(attention)
@@ -86,23 +110,29 @@ object GlucoseComplicationRenderer {
         canvas.save()
         canvas.translate(0f, -size * 0.15f)
 
-        val arrow = buildArrowBitmap(reading, settings, (size * 0.38f).roundToInt())
+        val arrow = buildArrowBitmap(if (sensorError || unavailable) null else reading, settings, (size * 0.38f).roundToInt())
         canvas.drawBitmap(arrow, (size - arrow.width) / 2f, size * 0.17f, null)
         paint.style = Paint.Style.FILL
         paint.strokeWidth = 0f
-        // With no fresh value to show, surface the error code itself instead of a blank "--".
-        val centerText = if (!fresh && badge != null) badge.shortText else valueText(reading, settings.unit)
+        val centerText = when {
+            sensorError -> "S.E."
+            unavailable -> "OOR"
+            !fresh && badge != null -> badge.shortText
+            else -> valueText(reading, settings.unit)
+        }
         paint.color = when {
+            sensorError -> COLOR_ERROR
+            unavailable -> settings.timestampStaleColor
             !fresh && badge != null -> badge.color
             fresh -> settings.glucoseColorFor(reading?.mgDL)
             else -> settings.timestampStaleColor
         }
         paint.typeface = typefaceFor(context, settings.fontWeight)
-        paint.textSize = if (!fresh && badge != null) size * 0.36f else size * 0.50f
+        paint.textSize = if (sensorError || unavailable || (!fresh && badge != null)) size * 0.36f else size * 0.50f
         drawCenteredText(canvas, centerText, size / 2f, size * 0.74f, paint)
         // Even with a fresh value, flag attention with a corner dot so the number stays visible.
         badge?.let { drawAttentionDot(canvas, size, it.color) }
-        
+
         canvas.restore()
         return bitmap
     }
@@ -143,11 +173,15 @@ object GlucoseComplicationRenderer {
         reading: SensorStateStore.LastGlucose?,
         attention: Libre3SensorAttention = Libre3SensorAttention.None,
         unit: GlucoseUnit = GlucoseUnit.MG_DL,
+        sensorError: Boolean = false,
+        unavailable: Boolean = false,
     ): String {
-        val base = if (reading != null) {
-            "$label ${unit.formatWithUnit(reading.mgDL)} ${trendLabel(reading.trend)} ${timeText(reading)} ${deltaText(reading, unit)}"
-        } else {
-            "$label no glucose"
+        val base = when {
+            sensorError -> "$label sensor error"
+            unavailable -> "$label out of range"
+            reading != null ->
+                "$label ${unit.formatWithUnit(reading.mgDL)} ${trendLabel(reading.trend)} ${timeText(reading)} ${deltaText(reading, unit)}"
+            else -> "$label no glucose"
         }
         return attentionLabel(attention)?.let { "$base, $it" } ?: base
     }

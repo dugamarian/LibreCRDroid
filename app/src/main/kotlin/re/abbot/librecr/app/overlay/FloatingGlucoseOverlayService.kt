@@ -35,10 +35,15 @@ import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.protocol.TrendArrowShape
+import re.abbot.librecr.app.ble.ConnectionState
+import re.abbot.librecr.app.ble.GlucoseDisplayStatus
 import re.abbot.librecr.app.ble.GlucoseUi
+import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
+import re.abbot.librecr.app.ble.isUnavailableForGlucoseDisplay
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.log.BleLog
+import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -51,12 +56,33 @@ class FloatingGlucoseOverlayService : Service() {
     private val history = ArrayDeque<GlucoseUi>()
     private var localReading: GlucoseUi? = null
     private var storedReading: GlucoseUi? = null
+    private var sensorAttention: Libre3SensorAttention = Libre3SensorAttention.None
+    private var connectionState: ConnectionState = ConnectionState.IDLE
     private var currentUnit: GlucoseUnit = GlucoseUnit.MG_DL
     private lateinit var prefs: SharedPreferences
 
     private val currentReading: GlucoseUi?
-        get() = localReading?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs) }
-            ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }
+        get() {
+            val local = localReading
+            if (sensorAttention != Libre3SensorAttention.None) {
+                return local?.copy(mgDL = null, usable = false)
+                    ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }?.copy(mgDL = null, usable = false)
+            }
+            // A fresh unavailable live reading is the newest glucose state: render "OOR" instead of
+            // falling back to the older stored value.
+            if (local.isActiveGlucoseUnavailable()) return local?.copy(mgDL = null)
+            return local?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs) }
+                ?: storedReading?.takeIf { isFreshGlucose(it.receivedAtMs) }
+        }
+
+    private val currentDisplayStatus: GlucoseDisplayStatus
+        get() = when {
+            sensorAttention != Libre3SensorAttention.None -> GlucoseDisplayStatus.SENSOR_ERROR
+            localReading.isActiveGlucoseUnavailable() ||
+                (currentReading == null && connectionState.isUnavailableForGlucoseDisplay()) ->
+                GlucoseDisplayStatus.OUT_OF_RANGE
+            else -> GlucoseDisplayStatus.NORMAL
+        }
 
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         val settings = FloatingSettings.load(this)
@@ -141,7 +167,7 @@ class FloatingGlucoseOverlayService : Service() {
         val view = FloatingGlucoseView(this, bold, regular).apply {
             setFloatingSettings(settings)
             setGlucoseUnit(currentUnit)
-            setReading(currentReading, history.toList())
+            setReading(currentReading, history.toList(), currentDisplayStatus)
             setOnClickListener { openApp() }
             setDragListener { dx, dy, finished ->
                 val lp = this@FloatingGlucoseOverlayService.layoutParams ?: return@setDragListener
@@ -207,16 +233,32 @@ class FloatingGlucoseOverlayService : Service() {
     }
 
     private fun observeGlucose() {
+        // The two reading collectors feed only the CURRENT value (live preferred, stored fallback).
+        // The mini-chart history has a single source of truth — the store's history blob, which is
+        // appended on every reading anyway — so no manual per-reading append here (it was redundant:
+        // the next replaceHistory rebuilt the deque from the blob regardless).
         scope.launch {
             LibreCR.manager.glucose.collectLatest { reading ->
                 localReading = reading
-                acceptReading(reading)
+                publishReading()
+            }
+        }
+        scope.launch {
+            LibreCR.manager.state.collectLatest {
+                connectionState = it
+                publishReading()
             }
         }
         scope.launch {
             LibreCR.store.lastGlucoseFlow.collectLatest { last ->
                 storedReading = last?.toGlucoseUi()
-                acceptReading(storedReading)
+                publishReading()
+            }
+        }
+        scope.launch {
+            LibreCR.store.sensorStatusFlow.collectLatest {
+                sensorAttention = it?.attention ?: Libre3SensorAttention.None
+                publishReading()
             }
         }
         scope.launch {
@@ -241,18 +283,6 @@ class FloatingGlucoseOverlayService : Service() {
         }
     }
 
-    private fun acceptReading(reading: GlucoseUi?) {
-        if (reading == null) {
-            publishReading()
-            return
-        }
-        if (reading.mgDL != null && history.lastOrNull()?.receivedAtMs != reading.receivedAtMs) {
-            history.addLast(reading)
-            while (history.size > MAX_HISTORY_POINTS) history.removeFirst()
-        }
-        publishReading()
-    }
-
     private fun replaceHistory(readings: List<GlucoseUi>) {
         history.clear()
         readings.takeLast(MAX_HISTORY_POINTS).forEach { history.addLast(it) }
@@ -260,7 +290,7 @@ class FloatingGlucoseOverlayService : Service() {
     }
 
     private fun publishReading() {
-        overlayView?.setReading(currentReading, history.toList())
+        overlayView?.setReading(currentReading, history.toList(), currentDisplayStatus)
     }
 
     private fun openApp() {
@@ -305,6 +335,7 @@ private fun SensorStateStore.LastGlucose.toGlucoseUi(): GlucoseUi =
         usable = true,
         receivedAtMs = receivedAtMs,
         deltaMgDlPerMin = deltaMgDlPerMin,
+        chartMgDL = chartMgDL,
     )
 
 internal open class FloatingGlucoseView(
@@ -342,6 +373,7 @@ internal open class FloatingGlucoseView(
     private val path = Path()
     private var reading: GlucoseUi? = null
     private var history: List<GlucoseUi> = emptyList()
+    private var displayStatus: GlucoseDisplayStatus = GlucoseDisplayStatus.NORMAL
     protected var currentSettings = FloatingSettings.load(context)
     private var glucoseUnit: GlucoseUnit = GlucoseUnit.MG_DL
     private var downRawX = 0f
@@ -361,9 +393,14 @@ internal open class FloatingGlucoseView(
         invalidate()
     }
 
-    fun setReading(reading: GlucoseUi?, history: List<GlucoseUi>) {
+    fun setReading(
+        reading: GlucoseUi?,
+        history: List<GlucoseUi>,
+        displayStatus: GlucoseDisplayStatus = this.displayStatus,
+    ) {
         this.reading = reading
         this.history = history
+        this.displayStatus = displayStatus
         requestLayout()
         invalidate()
     }
@@ -374,10 +411,11 @@ internal open class FloatingGlucoseView(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         configurePaints()
-        val primary = reading?.mgDL?.let { glucoseUnit.format(it) } ?: "---"
-        val secondary = if (currentSettings.showSecondary) glucoseUnit.label else ""
-        val delta = deltaText(history, glucoseUnit, includeSymbol = false).orEmpty()
-        val showArrow = currentSettings.showArrow && TrendArrowShape.hasArrow(reading?.trend)
+        val hasValue = reading?.mgDL != null
+        val primary = primaryText()
+        val secondary = if (hasValue && currentSettings.showSecondary) glucoseUnit.label else ""
+        val delta = if (hasValue) deltaText(history, glucoseUnit, includeSymbol = false).orEmpty() else ""
+        val showArrow = hasValue && currentSettings.showArrow && TrendArrowShape.hasArrow(reading?.trend)
         val arrowWidth = if (showArrow) arrowSize() else 0f
         val arrowGap = if (showArrow) dp(1.5f) else 0f
         val deltaGap = if (delta.isNotEmpty()) dp(2f) else 0f
@@ -400,7 +438,8 @@ internal open class FloatingGlucoseView(
     }
 
     protected fun drawFloatingContent(canvas: Canvas, bounds: RectF, aod: AodSettings? = null) {
-        val primary = reading?.mgDL?.let { glucoseUnit.format(it) } ?: "SE"
+        val hasValue = reading?.mgDL != null
+        val primary = primaryText()
         val baseY = bounds.centerY() - (valuePaint.ascent() + valuePaint.descent()) / 2f
         val leftPadding = dp(6f)
         val islandGap = if (currentSettings.dynamicIsland && aod == null) {
@@ -412,6 +451,7 @@ internal open class FloatingGlucoseView(
         canvas.drawText(primary, x, baseY, valuePaint)
         x += valuePaint.measureText(primary) + dp(1.5f)
         val showArrow = (aod?.showArrow ?: currentSettings.showArrow) &&
+            hasValue &&
             TrendArrowShape.hasArrow(reading?.trend)
         if (showArrow) {
             val size = arrowSize() * (aod?.arrowScale ?: 1f)
@@ -419,11 +459,11 @@ internal open class FloatingGlucoseView(
             drawTrendArrow(canvas, reading?.trend, x, arrowTop, size, Color.WHITE)
             x += size + dp(2f)
         }
-        deltaText(history, glucoseUnit, includeSymbol = false)?.let {
+        if (hasValue) deltaText(history, glucoseUnit, includeSymbol = false)?.let {
             canvas.drawText(it, x, baseY, secondaryPaint)
             x += secondaryPaint.measureText(it) + dp(3f)
         }
-        if (currentSettings.showSecondary || aod?.showSecondary == true) {
+        if (hasValue && (currentSettings.showSecondary || aod?.showSecondary == true)) {
             canvas.drawText(glucoseUnit.label, x, baseY, secondaryPaint)
         }
     }
@@ -434,8 +474,10 @@ internal open class FloatingGlucoseView(
         inRangeColor: Int,
         outOfRangeColor: Int,
     ) {
+        // Chart line only: the uncapped value so deep hypos below the ~40 "LO" floor stay visible.
+        // The headline number, delta text and colors keep the capped mgDL.
         val points = history.mapNotNull { g ->
-            val mg = g.mgDL ?: return@mapNotNull null
+            val mg = g.chartMgDL ?: g.mgDL ?: return@mapNotNull null
             if (mg <= 0) return@mapNotNull null
             g.receivedAtMs to mg
         }
@@ -501,6 +543,13 @@ internal open class FloatingGlucoseView(
         secondaryPaint.textSize = (currentSettings.fontSizeSp * 0.62f * 1.3f * 1.2f).spToPx(context)
         arrowPaint.strokeWidth = arrowSize() * 0.15f
     }
+
+    private fun primaryText(): String =
+        reading?.mgDL?.let { glucoseUnit.format(it) } ?: when (displayStatus) {
+            GlucoseDisplayStatus.SENSOR_ERROR -> context.getString(R.string.sensor_error_short)
+            GlucoseDisplayStatus.OUT_OF_RANGE -> context.getString(R.string.sensor_out_of_range_short)
+            GlucoseDisplayStatus.NORMAL -> "--"
+        }
 
     private fun drawContainer(canvas: Canvas) {
         rect.set(0f, 0f, width.toFloat(), height.toFloat())

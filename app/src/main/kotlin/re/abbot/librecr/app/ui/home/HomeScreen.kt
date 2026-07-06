@@ -39,6 +39,8 @@ import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.ble.GlucoseUi
+import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
+import re.abbot.librecr.app.ble.isUnavailableForGlucoseDisplay
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.app.log.GlucoseTimelineTracker
@@ -75,11 +77,25 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     val statusLine by LibreCR.manager.statusLine.collectAsState()
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    val glucose: GlucoseUi? = local
-        ?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs, nowMs) }
-        ?: remote?.takeIf { isFreshGlucose(it.receivedAtMs, nowMs) }?.let {
-            GlucoseUi(it.mgDL, it.trend, it.lifeCount, it.mgDL in 1..500, it.receivedAtMs, it.deltaMgDlPerMin)
-        }
+    val attention = sensorStatus?.attention ?: Libre3SensorAttention.None
+    val hasSensorAttention = attention != Libre3SensorAttention.None
+    val liveUnavailable = local.isActiveGlucoseUnavailable(nowMs)
+    val connectionUnavailable = state.isUnavailableForGlucoseDisplay()
+    // A fresh unavailable live reading is the newest glucose state: show "out of range" instead of
+    // falling back to the older stored value. Real sensor errors still come from patch-status attention.
+    val glucose: GlucoseUi? = when {
+        hasSensorAttention -> local?.copy(mgDL = null)
+            ?: remote?.takeIf { isFreshGlucose(it.receivedAtMs, nowMs) }?.let {
+                GlucoseUi(null, it.trend, it.lifeCount, false, it.receivedAtMs, it.deltaMgDlPerMin)
+            }
+        liveUnavailable -> local?.copy(mgDL = null)
+        else -> local
+            ?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs, nowMs) }
+            ?: remote?.takeIf { isFreshGlucose(it.receivedAtMs, nowMs) }?.let {
+                GlucoseUi(it.mgDL, it.trend, it.lifeCount, it.mgDL in 1..500, it.receivedAtMs, it.deltaMgDlPerMin)
+            }
+    }
+    val outOfRange = !hasSensorAttention && (liveUnavailable || (glucose == null && connectionUnavailable))
     // Closes the watch→phone timeline: the relayed reading is now on screen. Keyed by the
     // reading's identity so it fires once per reading, not on every recomposition.
     LaunchedEffect(glucose?.lifeCount, glucose?.receivedAtMs) {
@@ -127,9 +143,15 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 val mgDl = glucose?.mgDL
                 val valueColor = mgDl?.let { glucoseColors.forMgDl(it, settings.targetLow, settings.targetHigh) }
                     ?: MaterialTheme.colorScheme.onSurface
+                val valueText = when {
+                    mgDl != null -> settings.unit.format(mgDl)
+                    hasSensorAttention -> sensorAttentionPresentation(attention)?.title ?: stringResource(R.string.sensor_error)
+                    outOfRange -> stringResource(R.string.sensor_out_of_range)
+                    else -> stringResource(R.string.standby_no_reading)
+                }
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = mgDl?.let { settings.unit.format(it) } ?: "Sensor Error",
+                        text = valueText,
                         fontSize = if (mgDl == null) 36.sp else 76.sp,
                         lineHeight = if (mgDl == null) 40.sp else 80.sp,
                         fontWeight = FontWeight.Bold,
@@ -140,7 +162,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        if (TrendArrowShape.hasArrow(glucose?.trend)) {
+                        if (mgDl != null && TrendArrowShape.hasArrow(glucose?.trend)) {
                             TrendArrow(
                                 trend = glucose?.trend,
                                 color = valueColor,
@@ -194,16 +216,29 @@ fun HomeScreen(modifier: Modifier = Modifier) {
 
 private data class SensorAttentionPresentation(val title: String, val detail: String, val color: Color)
 
+@Composable
 private fun sensorAttentionPresentation(attention: Libre3SensorAttention): SensorAttentionPresentation? = when (attention) {
     Libre3SensorAttention.None -> null
-    Libre3SensorAttention.CheckSensor ->
-        SensorAttentionPresentation("Verifică senzorul", "Senzorul raportează o problemă de inserție.", AttentionAmber)
-    Libre3SensorAttention.SensorEnded ->
-        SensorAttentionPresentation("Senzor încheiat", "Sesiunea senzorului s-a încheiat.", AttentionRed)
-    Libre3SensorAttention.ReplaceSensor ->
-        SensorAttentionPresentation("Înlocuiește senzorul", "Senzorul a raportat o eroare și trebuie înlocuit.", AttentionRed)
-    is Libre3SensorAttention.Unknown ->
-        SensorAttentionPresentation("Eroare senzor", "Cod necunoscut raportat de senzor (${attention.code}).", AttentionRed)
+    Libre3SensorAttention.CheckSensor -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_check_title),
+        stringResource(R.string.sensor_attention_check_detail),
+        AttentionAmber,
+    )
+    Libre3SensorAttention.SensorEnded -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_ended_title),
+        stringResource(R.string.sensor_attention_ended_detail),
+        AttentionRed,
+    )
+    Libre3SensorAttention.ReplaceSensor -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_replace_title),
+        stringResource(R.string.sensor_attention_replace_detail),
+        AttentionRed,
+    )
+    is Libre3SensorAttention.Unknown -> SensorAttentionPresentation(
+        stringResource(R.string.sensor_attention_unknown_title),
+        stringResource(R.string.sensor_attention_unknown_detail, attention.code),
+        AttentionRed,
+    )
 }
 
 @Composable
@@ -421,5 +456,5 @@ private fun statusText(state: ConnectionState, statusLine: String): String = whe
     ConnectionState.HANDSHAKING -> stringResource(R.string.status_handshaking)
     ConnectionState.STREAMING -> stringResource(R.string.status_streaming)
     ConnectionState.RECONNECTING -> stringResource(R.string.status_reconnecting)
-    ConnectionState.ERROR -> statusLine.ifBlank { stringResource(R.string.status_error) }
+    ConnectionState.ERROR -> stringResource(R.string.status_reconnecting)
 }

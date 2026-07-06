@@ -79,7 +79,12 @@ class LibreWearListenerService : WearableListenerService() {
     private fun receiveSession(path: String, payload: ByteArray, source: String) {
         scope.launch {
             runCatching {
-                val incoming = ImportedSession.fromJson(String(payload)).withoutTransientCrypto()
+                // Keep the incoming session as-is: the phone's handoff attaches its CURRENT Phase 5
+                // key so the watch can resume via the cheap cached handshake (the watch cannot finish
+                // a full first-pair derivation before the sensor's mid-handshake patience runs out).
+                // saveSession stores the key in the separate cached slot and persists the session
+                // itself keyless; keyless updates for the same sensor preserve any existing key.
+                val incoming = ImportedSession.fromJson(String(payload))
                 val shouldStart = path == WearDataSync.PATH_START
                 LibreCR.store.saveSession(incoming, preserveCachedKeyWhenKeyless = true)
                 if (shouldStart) {
@@ -90,8 +95,14 @@ class LibreWearListenerService : WearableListenerService() {
                     SensorForegroundService.stop(this@LibreWearListenerService)
                     BleLog.log("wear: provisioning save-only stopped local connection stopped=$stopped")
                 }
-                BleLog.log("wear: provisioning received via $source for ${incoming.bleAddress} start=$shouldStart")
+                BleLog.log(
+                    "wear: provisioning received via $source for ${incoming.bleAddress} " +
+                        "start=$shouldStart relayedKey=${incoming.phase5RawKey != null}",
+                )
                 if (shouldStart) {
+                    // Restart from a clean loop so the (possibly relayed) key in the store is what the
+                    // manager loads — a still-running loop would keep its stale in-memory key.
+                    LibreCR.manager.stopAndJoin()
                     SensorForegroundService.start(this@LibreWearListenerService, allowCandidateFirstPair = true)
                 }
             }.onFailure {

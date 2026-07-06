@@ -294,7 +294,12 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             wearMessage = "Aștept eliberarea conexiunii BLE a senzorului..."
             delay(HANDOFF_BLE_RELEASE_DELAY_MS)
             wearMessage = "Pornesc conexiunea pe ceas."
-            WearDataSync.sendSession(appCtx, session, startOnWatch = true)
+            // Relay the phone's CURRENT Phase 5 session key (read only after stopAndJoin, so it can't
+            // rotate anymore). The watch resumes via the cheap cached handshake — it cannot finish a
+            // full first-pair derivation before the sensor's mid-handshake patience runs out. Both
+            // devices share the same receiver certificate, so the sensor sees the same identity.
+            val handoffKey = runCatching { LibreCR.store.loadCachedPhase5RawKey() }.getOrNull()
+            WearDataSync.sendSession(appCtx, session.copy(phase5RawKey = handoffKey), startOnWatch = true)
             wearMessage = "Ceasul preia conexiunea. Poți închide acest ecran."
             wearBusy = false
         }

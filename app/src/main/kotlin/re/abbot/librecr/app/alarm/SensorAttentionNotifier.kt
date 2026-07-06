@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import re.abbot.librecr.app.MainActivity
+import re.abbot.librecr.app.R
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 
@@ -39,7 +40,7 @@ object SensorAttentionNotifier {
             Intent(app, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val (title, text) = message(attention)
+        val (title, text) = message(app, attention)
         val notification = Notification.Builder(app, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
@@ -57,22 +58,29 @@ object SensorAttentionNotifier {
         runCatching { notificationManager(context.applicationContext).cancel(NOTIF_ID) }
     }
 
-    private fun message(attention: Libre3SensorAttention): Pair<String, String> = when (attention) {
+    private fun message(context: Context, attention: Libre3SensorAttention): Pair<String, String> = when (attention) {
         Libre3SensorAttention.ReplaceSensor ->
-            "Înlocuiește senzorul" to "Senzorul a raportat o eroare și trebuie înlocuit."
+            context.getString(R.string.sensor_attention_replace_title) to
+                context.getString(R.string.sensor_attention_replace_detail)
         Libre3SensorAttention.SensorEnded ->
-            "Senzor încheiat" to "Sesiunea senzorului s-a încheiat."
+            context.getString(R.string.sensor_attention_ended_title) to
+                context.getString(R.string.sensor_attention_ended_detail)
         is Libre3SensorAttention.Unknown ->
-            "Eroare senzor" to "Senzorul a raportat un cod necunoscut (${attention.code})."
-        else -> "Senzor" to ""
+            context.getString(R.string.sensor_attention_unknown_title) to
+                context.getString(R.string.sensor_attention_unknown_detail, attention.code)
+        else -> context.getString(R.string.sensor_section) to ""
     }
 
     private fun ensureChannel(context: Context) {
         val manager = notificationManager(context)
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Stare senzor", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Notificări despre starea senzorului (înlocuire / erori)"
+            NotificationChannel(
+                CHANNEL_ID,
+                context.getString(R.string.sensor_status_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = context.getString(R.string.sensor_status_channel_desc)
             },
         )
     }

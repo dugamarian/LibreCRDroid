@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.RingtoneManager
+import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.AlarmSettings
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.log.BleLog
@@ -128,7 +129,7 @@ object GlucoseAlarmManager {
             piFlags,
         )
         val notification = Notification.Builder(app, CHANNEL_ID)
-            .setContentTitle(title(kind))
+            .setContentTitle(app.getString(titleRes(kind)))
             .setContentText(unit.formatWithUnit(mgDl))
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setCategory(Notification.CATEGORY_ALARM)
@@ -136,12 +137,31 @@ object GlucoseAlarmManager {
             .setAutoCancel(false)
             .setFullScreenIntent(fullPi, true)
             .setContentIntent(fullPi)
-            .addAction(Notification.Action.Builder(android.R.drawable.ic_menu_recent_history, "Amână", snoozePi).build())
-            .addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel, "Oprește", stopPi).build())
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_recent_history,
+                    app.getString(R.string.alarm_action_snooze),
+                    snoozePi,
+                ).build(),
+            )
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    app.getString(R.string.alarm_action_stop),
+                    stopPi,
+                ).build(),
+            )
             .build()
         runCatching { notificationManager(app).notify(NOTIF_ID, notification) }
             .onSuccess { BleLog.log("alarm notification posted kind=$kind mgdl=$mgDl") }
             .onFailure { BleLog.log("alarm notify FAILED: ${it.message}") }
+        // A full-screen intent only auto-launches when the screen is off/locked; with the screen ON
+        // showing our own UI (the landscape standby clock is the common case) Android downgrades it
+        // to a heads-up. Also try a direct launch: it succeeds whenever the app is in the foreground
+        // and is silently discarded by the OS when backgrounded — the notification stays the fallback.
+        runCatching { app.startActivity(full) }
+            .onSuccess { BleLog.log("alarm direct launch attempted kind=$kind") }
+            .onFailure { BleLog.log("alarm direct launch failed: ${it.message}") }
     }
 
     private fun cancel(context: Context) {
@@ -153,8 +173,12 @@ object GlucoseAlarmManager {
         channelEnsured = true
         val nm = notificationManager(context.applicationContext)
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
-        val channel = NotificationChannel(CHANNEL_ID, "Alarme glicemie", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Alarme glicemie scăzută / ridicată"
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            context.getString(R.string.alarm_channel_name),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = context.getString(R.string.alarm_channel_desc)
             enableVibration(true)
             vibrationPattern = longArrayOf(0, 500, 300, 500, 300, 500)
             setBypassDnd(true)
@@ -175,12 +199,13 @@ object GlucoseAlarmManager {
         return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
     }
 
-    private fun title(kind: AlarmKind): String = when (kind) {
-        AlarmKind.URGENT_LOW -> "Glicemie foarte scăzută!"
-        AlarmKind.LOW -> "Glicemie scăzută"
-        AlarmKind.HIGH -> "Glicemie ridicată"
-        AlarmKind.PERSISTENT_HIGH -> "Glicemie ridicată persistent"
-        AlarmKind.PERSISTENT_LOW -> "Glicemie scăzută persistent"
+    /** Shared with [AlarmActivity] so the notification and the full-screen alarm always match. */
+    fun titleRes(kind: AlarmKind): Int = when (kind) {
+        AlarmKind.URGENT_LOW -> R.string.alarm_title_urgent_low
+        AlarmKind.LOW -> R.string.alarm_title_low
+        AlarmKind.HIGH -> R.string.alarm_title_high
+        AlarmKind.PERSISTENT_HIGH -> R.string.alarm_title_persistent_high
+        AlarmKind.PERSISTENT_LOW -> R.string.alarm_title_persistent_low
     }
 }
 
