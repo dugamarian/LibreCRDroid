@@ -41,8 +41,8 @@ object LiveUpdatesNotifier {
         val reading: SensorStateStore.LastGlucose?,
         val lifecycle: SensorStateStore.SensorLifecycleSnapshot?,
         val session: ImportedSession?,
-        /** When the live sensor state is an unusable reading: its timestamp; null when readings are good. */
-        val sensorErrorAtMs: Long? = null,
+        /** When the live glucose state is unavailable: its timestamp; null when readings are good. */
+        val unavailableAtMs: Long? = null,
     )
 
     /**
@@ -58,14 +58,13 @@ object LiveUpdatesNotifier {
     ) {
         val app = context.applicationContext
         val settings = state.settings
-        // A fresh unusable live reading (sensor error) is the newest sensor state: surface it instead
-        // of keeping the previous value on the lock screen. Freshness is re-checked here on every 30s
-        // tick, so a sensor that goes silent decays to the normal stale/cancel path.
-        val sensorError = settings.enabled && state.sensorErrorAtMs?.let { isFreshGlucose(it) } == true
-        if (sensorError) {
+        // A fresh unavailable live reading is the newest glucose state: surface "out of range"
+        // instead of keeping the previous value on the lock screen.
+        val unavailable = settings.enabled && state.unavailableAtMs?.let { isFreshGlucose(it) } == true
+        if (unavailable) {
             ensureChannel(app)
             maybePosted = true
-            notificationManager(app).notify(NOTIFICATION_ID, buildSensorErrorNotification(app, state))
+            notificationManager(app).notify(NOTIFICATION_ID, buildUnavailableNotification(app, state))
             return
         }
         val reading = state.reading?.takeIf { isFreshGlucose(it.receivedAtMs) }
@@ -85,7 +84,7 @@ object LiveUpdatesNotifier {
         )
     }
 
-    private fun buildSensorErrorNotification(context: Context, state: State): Notification {
+    private fun buildUnavailableNotification(context: Context, state: State): Notification {
         val contentIntent = PendingIntent.getActivity(
             context,
             120,
@@ -94,7 +93,7 @@ object LiveUpdatesNotifier {
         )
         val sensorLabel = sensorProgress(state).label(context)
         val builder = Notification.Builder(context, CHANNEL_ID)
-            .setContentTitle(context.getString(R.string.sensor_error))
+            .setContentTitle(context.getString(R.string.sensor_out_of_range))
             .setSubText(sensorLabel)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setCategory(Notification.CATEGORY_STATUS)
@@ -105,7 +104,7 @@ object LiveUpdatesNotifier {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setContentIntent(contentIntent)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && state.settings.statusChipEnabled) {
-            builder.setShortCriticalText(context.getString(R.string.sensor_error_short))
+            builder.setShortCriticalText(context.getString(R.string.sensor_out_of_range_short))
         }
         return builder.build()
     }

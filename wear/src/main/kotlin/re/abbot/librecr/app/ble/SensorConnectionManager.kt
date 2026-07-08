@@ -4,13 +4,17 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.PowerManager
+import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -77,16 +81,14 @@ fun GlucoseUi.toLastGlucose(): SensorStateStore.LastGlucose? {
     return SensorStateStore.LastGlucose(lifeCount, mg, trend, receivedAtMs, deltaMgDlPerMin)
 }
 
-private const val SENSOR_ERROR_FRESH_MS = 6 * 60_000L
+private const val GLUCOSE_UNAVAILABLE_FRESH_MS = 6 * 60_000L
 
 /**
- * True while the sensor is actively reporting an unusable reading (VALUE_UNAVAILABLE / data
- * quality / sensor condition). The live state only ever advances, so a fresh unusable value IS the
- * newest known sensor state — the watch UI and complications should show "sensor error" instead of
- * falling back to the older stored value.
+ * True while the latest realtime glucose packet has no displayable value. This is not, by itself,
+ * a sensor-error signal; patch-status attention remains the source of truth for real sensor errors.
  */
-fun GlucoseUi?.isActiveSensorError(nowMs: Long = System.currentTimeMillis()): Boolean =
-    this != null && !usable && receivedAtMs > 0L && nowMs - receivedAtMs < SENSOR_ERROR_FRESH_MS
+fun GlucoseUi?.isActiveGlucoseUnavailable(nowMs: Long = System.currentTimeMillis()): Boolean =
+    this != null && !usable && receivedAtMs > 0L && nowMs - receivedAtMs < GLUCOSE_UNAVAILABLE_FRESH_MS
 
 /**
  * Owns the full connection lifecycle: scan → connect → security handshake
@@ -131,6 +133,10 @@ class SensorConnectionManager(
     @Volatile private var reconnectLastGoodLifeCount: Int? = null
     /** Rate-limits shipping the watch log to the phone on reconnect (a ~500-line Data Layer push). */
     @Volatile private var lastLogShipAtMs = 0L
+    // Backfill coalescing: clinicalBackfillGreaterEqual(start) already covers every HIGHER start, and
+    // the reconnect path + the first reading's gap detection request the same range seconds apart.
+    @Volatile private var lastBackfillRequestFrom: Int? = null
+    @Volatile private var lastBackfillRequestAtMs = 0L
 
     // DataStore persistence runs OFF the decode→ui→send path: a single conflated consumer drains
     // only the latest reading, so a slow write (Wear doze can stall flash I/O for tens of seconds)
@@ -185,7 +191,21 @@ class SensorConnectionManager(
             "manager: starting independent BLE loop; cachedResumeKey=${cachedPhase5RawKey != null} " +
                 "allowCandidateFirstPair=$allowCandidateFirstPair transientKeyPersisted=false"
         )
-        loopJob = scope.launch { runLoop(localProvisioning) }
+        loopJob = scope.launch {
+            // The loop must never end silently: it is the only thing keeping readings alive, and a
+            // dead loop looks exactly like "stale value, no reconnect, empty log" in the field.
+            try {
+                runLoop(localProvisioning)
+                reconLog("SENSOR_LOOP_EXITED normally (unexpected — loop should only end by cancel)")
+            } catch (e: CancellationException) {
+                reconLog("SENSOR_LOOP_EXITED cancelled (stop/restart)")
+                throw e
+            } catch (e: Throwable) {
+                reconLog("SENSOR_LOOP_CRASHED ${e::class.simpleName}: ${e.message}")
+                _statusLine.value = "loop crashed: ${e.message}"
+                throw e
+            }
+        }
     }
 
     fun stop() {
@@ -222,26 +242,81 @@ class SensorConnectionManager(
         val age = if (lastGlucoseAt.get() > 0) System.currentTimeMillis() - lastGlucoseAt.get() else -1
 
         reconLog(
-            "SENSOR_DISCONNECTED status=${status ?: -1} lastPacketAgeMs=$age attempt=$reconnectAttempt " +
+            "SENSOR_DISCONNECTED status=${describeGattStatus(status)} lastPacketAgeMs=$age attempt=$reconnectAttempt " +
                 "reason=$reason lastGoodLifeCount=${reconnectLastGoodLifeCount ?: -1}",
         )
-        shipLogRateLimited()
+        // Deliberately NO log ship here: pushing ~500 log lines to the phone rides Bluetooth
+        // Classic when the Wear link has no Wi-Fi (typically outdoors), contending for the shared
+        // combo antenna exactly while the BLE reconnect needs it. The ship on reconnect success
+        // carries the whole drop narrative anyway, and the phone can pull the buffer on demand.
+        logTransportSnapshot("disconnect", status)
         signal.complete(Unit)
     }
 
     private fun reconLog(message: String) = BleLog.log("$WEAR_BLE_TAG $message")
 
     /**
-     * Ship the watch log to the phone for post-mortem, at most once per [LOG_SHIP_MIN_INTERVAL_MS] —
-     * a reconnect storm must not push ~500 lines over the Data Layer every few seconds. Called on
-     * disconnect AND on reconnect success (so the gap diagnostics reach the phone); the phone's log
-     * screen can always pull the full buffer on demand.
+     * Keeps the numeric token greppable (`status=8/...`) while making the shipped narrative
+     * self-explanatory — the reader shouldn't need the HCI error-code table on their phone.
+     */
+    private fun describeGattStatus(status: Int?): String = when (status) {
+        null -> "-1"
+        0 -> "0/OK_LOCAL_DISCONNECT"
+        8 -> "8/LINK_TIMEOUT_SIGNAL_LOST"
+        19 -> "19/TERMINATED_BY_SENSOR"
+        22 -> "22/TERMINATED_BY_WATCH"
+        62 -> "62/FAILED_TO_ESTABLISH"
+        133 -> "133/GATT_ERROR"
+        147 -> "147/CONNECT_TIMEOUT"
+        else -> status.toString()
+    }
+
+    /**
+     * Ship the connection narrative to the phone, at most once per [LOG_SHIP_MIN_INTERVAL_MS] —
+     * a reconnect storm must not push the Data Layer every few seconds. Called ONLY on reconnect
+     * success (first reading), never at disconnect time: without Wi-Fi the push rides Bluetooth
+     * Classic and steals the shared antenna from the BLE reconnect itself. Ships events-only
+     * (the timestamped `[WEAR-BLE]` lines: drop time/status/reason, transport, recovery) — the
+     * phone's log screen can always pull the full verbose buffer on demand.
      */
     private fun shipLogRateLimited() {
         val nowMs = System.currentTimeMillis()
         if (nowMs - lastLogShipAtMs >= LOG_SHIP_MIN_INTERVAL_MS) {
             lastLogShipAtMs = nowMs
-            WearDataSync.sendLog(context)
+            WearDataSync.sendLog(context, eventsOnly = true)
+        }
+    }
+
+    /**
+     * One log line correlating a link event with the watch's current connectivity: the active
+     * network's transports (Wi-Fi vs the Bluetooth companion proxy) and the Wear node state.
+     * This is what separates "drops happen when the phone link rides Bluetooth (no Wi-Fi)" from
+     * "drops happen anywhere" — both lookups are local Play Services/system state, zero radio.
+     */
+    private fun logTransportSnapshot(trigger: String, status: Int? = null) {
+        val statusLabel = describeGattStatus(status)
+        val net = runCatching {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return@runCatching "none"
+            buildList {
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("WIFI")
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) add("BT_PROXY")
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) add("CELL")
+            }.ifEmpty { listOf("OTHER") }.joinToString("|")
+        }.getOrElse { "unavailable" }
+        runCatching {
+            Wearable.getNodeClient(context).connectedNodes
+                .addOnSuccessListener { nodes ->
+                    reconLog(
+                        "WATCH_LINK_TRANSPORT trigger=$trigger status=$statusLabel net=$net " +
+                            "nodes=${nodes.size} nearby=${nodes.count { it.isNearby }}",
+                    )
+                }
+                .addOnFailureListener {
+                    reconLog("WATCH_LINK_TRANSPORT trigger=$trigger status=$statusLabel net=$net nodes=? (${it.message})")
+                }
+        }.onFailure {
+            reconLog("WATCH_LINK_TRANSPORT trigger=$trigger status=$statusLabel net=$net nodes=unavailable")
         }
     }
 
@@ -340,6 +415,11 @@ class SensorConnectionManager(
 
         while (kotlin.coroutines.coroutineContext.isActive) {
             var conn: SensorConnection? = null
+            // The real cause of THIS attempt's teardown. pendingReconnectReason only updates via
+            // requestSensorReconnect (streaming-time drops), so on a connect/handshake failure it
+            // still holds the PREVIOUS drop's reason — logging it misled a field post-mortem
+            // (SENSOR_GATT_CLOSED said gatt_disconnect when the truth was a CCCD op timeout).
+            var attemptFailure: String? = null
             try {
                 if (!adapter.isEnabled) {
                     _state.value = ConnectionState.RECONNECTING
@@ -437,7 +517,9 @@ class SensorConnectionManager(
                     }
                 }
                 val material = auth.result.sessionMaterial
-                BleLog.log("manager: ${auth.mode} authorized kEnc=${material.kEnc.toHex()} ivEnc=${material.ivEnc.toHex()}")
+                // Key prefixes only — the full session key in a log that ships to the phone would
+                // let any log holder decrypt a captured BLE glucose stream.
+                BleLog.log("manager: ${auth.mode} authorized kEnc=${material.kEnc.toHex().take(8)}… ivEnc=${material.ivEnc.toHex().take(8)}…")
 
                 val crypto = DataPlaneCrypto(material.kEnc, material.ivEnc)
                 val decoder = DataPlaneDecoder(crypto)
@@ -447,7 +529,14 @@ class SensorConnectionManager(
                 _statusLine.value = "streaming"
                 lastGlucoseAt.set(System.currentTimeMillis())
                 sensorOnline = true
+                // Fresh connection ⇒ fresh backfill dedup window: a request from the previous
+                // link died with it, so an identical fromLifeCount must be re-sendable now.
+                lastBackfillRequestFrom = null
                 reconLog("SENSOR_RECONNECTED device=${device.address} attempt=$reconnectAttempt resume=${cachedPhase5RawKey != null}")
+                logTransportSnapshot("streaming_start")
+                // Diagnostic only (HCI query, no renegotiation): SENSOR_PHY in the shipped log
+                // answers whether the link runs at 2M — the precondition for ever trying a 1M force.
+                c.readPhy()
 
                 coroutineScope {
                     val backfillRequests = Channel<BackfillRequest>(Channel.UNLIMITED)
@@ -471,10 +560,21 @@ class SensorConnectionManager(
                     backfillRequests.close()
                     watchdog.cancel()
                 }
+            } catch (e: TimeoutCancellationException) {
+                // A GATT op timed out (withTimeout) — a reconnectable failure like any other GATT
+                // error. This branch MUST precede CancellationException: TimeoutCancellationException
+                // is a SUBCLASS of it, and the rethrow below silently killed the whole reconnect loop
+                // (field log 2026-07-05: post-handshake CCCD re-arm on 1bee timed out → loop dead →
+                // stale reading for 14+ min, no reconnect until app relaunch).
+                attemptFailure = "op_timeout: ${e.message}"
+                reconLog("SENSOR_RECONNECT_FAILED reason=op_timeout ${e.message}")
+                _statusLine.value = "error: ${e.message}"
             } catch (e: CancellationException) {
+                attemptFailure = "cancelled"
                 conn?.disconnect(); conn?.close()
                 throw e
             } catch (e: Exception) {
+                attemptFailure = e.message ?: e::class.java.simpleName
                 reconLog("SENSOR_RECONNECT_FAILED reason=${e.message}")
                 _statusLine.value = "error: ${e.message}"
             } finally {
@@ -482,7 +582,7 @@ class SensorConnectionManager(
                 reconnectSignal = null
                 if (conn != null) {
                     conn.close()
-                    reconLog("SENSOR_GATT_CLOSED reason=$pendingReconnectReason")
+                    reconLog("SENSOR_GATT_CLOSED reason=${attemptFailure ?: pendingReconnectReason}")
                 }
                 if (activeConnection === conn) activeConnection = null
             }
@@ -943,6 +1043,20 @@ class SensorConnectionManager(
 
     private fun queueBackfill(backfillRequests: Channel<BackfillRequest>, fromLifeCount: Int, reason: String) {
         val request = BackfillRequest(maxOf(fromLifeCount, 0), reason)
+        // Skip a request already covered by one just sent on this link: the sensor command is
+        // "everything ≥ start", so a recent request with an equal-or-lower start subsumes this one.
+        // (Benign race between the two callers — a slipped duplicate only costs one extra write.)
+        val lastFrom = lastBackfillRequestFrom
+        val sinceLastMs = System.currentTimeMillis() - lastBackfillRequestAtMs
+        if (lastFrom != null && request.fromLifeCount >= lastFrom && sinceLastMs < BACKFILL_COALESCE_WINDOW_MS) {
+            BleLog.log(
+                "[BACKFILL] coalesced reason=$reason from lifeCount=${request.fromLifeCount} " +
+                    "(covered by ≥$lastFrom sent ${sinceLastMs}ms ago)",
+            )
+            return
+        }
+        lastBackfillRequestFrom = request.fromLifeCount
+        lastBackfillRequestAtMs = System.currentTimeMillis()
         val result = backfillRequests.trySend(request)
         if (result.isSuccess) {
             BleLog.log("[BACKFILL] queued reason=$reason from lifeCount=${request.fromLifeCount}")
@@ -1061,8 +1175,19 @@ class SensorConnectionManager(
     companion object {
         private const val STOP_JOIN_TIMEOUT_MS = 5_000L
         private const val WATCHDOG_CHECK_MS = 15_000L
-        private const val NO_DATA_TIMEOUT_MS = 75_000L // glucose is minute-spaced; reconnect shortly after one missed minute
+        /**
+         * No-data watchdog: two missed minutes + margin. A live BLE link cannot lose a notification
+         * (link-layer retransmission), so one missing minute means the sensor skipped a send — the
+         * old 75s ceiling tore down that healthy link at ~75–90s even though the next reading lands
+         * at ~120s. A genuinely dead link is reported by the controller itself (status=8) within
+         * seconds; the watchdog only backstops rare half-open states, so slower detection is cheap.
+         * NOTE: anything between ~90s and ~120s is the worst of both — still fires before the ~120s
+         * post-skip reading, yet detects real death later. Keep this ≥135s (120s + jitter margin).
+         */
+        private const val NO_DATA_TIMEOUT_MS = 135_000L
         private const val POST_AUTH_PATCH_CONTROL_TIMEOUT_MS = 10_000L
+        /** A backfill request with an equal-or-lower start within this window subsumes a new one. */
+        private const val BACKFILL_COALESCE_WINDOW_MS = 60_000L
         private const val HANDSHAKE_WAKE_LOCK_TIMEOUT_MS = 90_000L
         private const val PERSIST_SLOW_WARN_MS = 1_000L
 

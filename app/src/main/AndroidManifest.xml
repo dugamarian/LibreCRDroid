@@ -111,6 +111,11 @@
             android:name=".alarm.AlarmActionReceiver"
             android:exported="false" />
 
+        <!-- Staleness safety net: fires when no glucose liveness event arrives for the threshold. -->
+        <receiver
+            android:name=".alarm.StalenessWatchdog$Receiver"
+            android:exported="false" />
+
         <!-- Standby (nightstand) shown over the lock screen on a wireless charger. -->
         <activity
             android:name=".ui.standby.StandbyActivity"

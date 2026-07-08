@@ -132,7 +132,7 @@ class PairingFlow(
         if (r1Wire.size != 23) throw PairingFlowException.SensorR1WrongSize(r1Wire.size)
         val sensorR1 = r1Wire.copyOfRange(0, 16)
         val nonce7 = r1Wire.copyOfRange(16, 23)
-        log("preamble complete R1=${sensorR1.toHex()} nonce7=${nonce7.toHex()}")
+        log("preamble complete R1=${sensorR1.redacted()} nonce7=${nonce7.redacted()}")
         return Preamble(
             sensorR1,
             nonce7,
@@ -222,7 +222,7 @@ class PairingFlow(
         if (r1Wire.size != 23) throw PairingFlowException.SensorR1WrongSize(r1Wire.size)
         val sensorR1 = r1Wire.copyOfRange(0, 16)
         val nonce7 = r1Wire.copyOfRange(16, 23)
-        log("cached reconnect preamble complete R1=${sensorR1.toHex()} nonce7=${nonce7.toHex()}")
+        log("cached reconnect preamble complete R1=${sensorR1.redacted()} nonce7=${nonce7.redacted()}")
         return Preamble(sensorR1, nonce7)
     }
 
@@ -252,7 +252,7 @@ class PairingFlow(
         val r2 = r2Provider()
         if (r2.size != 16) throw ChallengeException.WrongPlaintextSize(preamble.sensorR1.size + r2.size + tail4.size)
         if (phase5RawKey.size != 16) throw ChallengeException.WrongKeySize(phase5RawKey.size)
-        log("generated R2=${r2.toHex()}")
+        log("generated R2=${r2.redacted()}")
 
         val block = LibAes.phase5BlockEncryptor(phase5RawKey)
         val plaintext = preamble.sensorR1 + r2 + tail4
@@ -273,7 +273,7 @@ class PairingFlow(
         if (!material.sensorR1.contentEquals(preamble.sensorR1)) {
             throw PairingFlowException.Phase6VerificationFailed("Phase 6 R1 echo mismatch")
         }
-        log("Phase 6 verified; kEnc=${material.kEnc.toHex()} ivEnc=${material.ivEnc.toHex()}")
+        log("Phase 6 verified; kEnc=${material.kEnc.redacted()} ivEnc=${material.ivEnc.redacted()}")
         return AuthorizationResult(preamble, phase5, phase6Raw, phase6, material, phase5RawKey)
     }
 
@@ -330,6 +330,13 @@ class PairingFlow(
     private fun defaultR2(): ByteArray = ByteArray(16).also { secureRandom.nextBytes(it) }
 
     private fun log(message: String) = logger?.invoke("PairingFlow: $message")
+
+    /**
+     * Secrets never reach the log in full: the log ships to the phone / sits in logcat, and the
+     * session key material (kEnc/ivEnc) or the KDF inputs (R1/R2/nonce7) would let anyone holding
+     * a log + a BLE capture decrypt the glucose stream. A 4-byte prefix keeps runs correlatable.
+     */
+    private fun ByteArray.redacted(): String = toHex().take(8) + "…"
 
     companion object {
         const val DEFAULT_COMMAND_TIMEOUT_MS = 2_000L

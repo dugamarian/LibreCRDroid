@@ -238,7 +238,11 @@ class SensorConnection(
         val startedAtMs = System.currentTimeMillis()
         BleLog.log("gatt.notify: enabling ${LibreSensorGatt.dataPlaneNotifying.size} data-plane CCCDs after handshake")
         for (uuid in LibreSensorGatt.dataPlaneNotifying) {
-            setNotify(uuid, true)
+            // Longer per-CCCD ceiling than the generic 5s op timeout: the sensor renegotiates to
+            // its streaming params (observed interval=390ms latency=4 ⇒ a guaranteed listen window
+            // only every ~2s) right in the middle of this sequence, so 5s left ~2.5 windows for
+            // the descriptor ack and timed out in the field (watch, 2026-07-05).
+            setNotify(uuid, true, timeoutMs = DATA_PLANE_CCCD_TIMEOUT_MS)
             BleLog.log("gatt.notify: enabled data-plane CCCD ${short(uuid)}")
         }
         BleLog.log("gatt.notify: data-plane enable complete in ${System.currentTimeMillis() - startedAtMs}ms")
@@ -383,6 +387,8 @@ class SensorConnection(
 
     companion object {
         const val OP_TIMEOUT_MS = 5_000L
+        /** Post-handshake CCCD enables ride the renegotiated low-power link (~2s listen windows). */
+        const val DATA_PLANE_CCCD_TIMEOUT_MS = 20_000L
         private const val BLUETOOTH_STATUS_SUCCESS = 0
     }
 }

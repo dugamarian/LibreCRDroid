@@ -249,7 +249,11 @@ class SensorConnection(
         BleLog.log("$WEAR_BLE_TAG CCCD_REARM_START count=${LibreSensorGatt.dataPlaneNotifying.size}")
         try {
             for (uuid in LibreSensorGatt.dataPlaneNotifying) {
-                setNotify(uuid, true)
+                // Longer per-CCCD ceiling than the generic 5s op timeout: the sensor renegotiates
+                // to its streaming params (observed interval=390ms latency=4 ⇒ a guaranteed listen
+                // window only every ~2s) right in the middle of this sequence, so 5s left ~2.5
+                // windows for the descriptor ack and timed out in the field.
+                setNotify(uuid, true, timeoutMs = DATA_PLANE_CCCD_TIMEOUT_MS)
                 BleLog.log("gatt.notify: enabled data-plane CCCD ${short(uuid)}")
             }
         } catch (e: Exception) {
@@ -257,6 +261,18 @@ class SensorConnection(
             throw e
         }
         BleLog.log("$WEAR_BLE_TAG CCCD_REARM_SUCCESS durationMs=${System.currentTimeMillis() - startedAtMs}")
+    }
+
+    /**
+     * Log the link's current PHY (result lands in [BluetoothGattCallback.onPhyRead]). A pure HCI
+     * query — no link-layer renegotiation, safe on the touchy Libre 3. Diagnostic for the "would
+     * forcing 1M PHY widen the status=8 margin?" question: if this reports 1M already, that
+     * theory is dead; only a consistent 2M reading justifies ever trying setPreferredPhy.
+     */
+    fun readPhy() {
+        val g = gatt ?: return
+        BleLog.log("gatt.readPhy requested")
+        g.readPhy()
     }
 
     fun disconnect() {
@@ -370,6 +386,23 @@ class SensorConnection(
             val timeoutMs = timeout * 10
             BleLog.log("gatt.connectionUpdated interval=$interval intervalMs=$intervalMs latency=$latency timeout=$timeout timeoutMs=$timeoutMs status=$status")
         }
+
+        override fun onPhyRead(g: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
+            if (ignoreStaleCallback(g, "onPhyRead")) return
+            BleLog.log("$WEAR_BLE_TAG SENSOR_PHY tx=${phyName(txPhy)} rx=${phyName(rxPhy)} status=$status")
+        }
+
+        override fun onPhyUpdate(g: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
+            if (ignoreStaleCallback(g, "onPhyUpdate")) return
+            BleLog.log("$WEAR_BLE_TAG SENSOR_PHY_UPDATED tx=${phyName(txPhy)} rx=${phyName(rxPhy)} status=$status")
+        }
+    }
+
+    private fun phyName(phy: Int): String = when (phy) {
+        BluetoothDevice.PHY_LE_1M -> "1M"
+        BluetoothDevice.PHY_LE_2M -> "2M"
+        BluetoothDevice.PHY_LE_CODED -> "CODED"
+        else -> phy.toString()
     }
 
     private fun deliverNotify(uuid: UUID, value: ByteArray) {
@@ -408,6 +441,8 @@ class SensorConnection(
 
     companion object {
         const val OP_TIMEOUT_MS = 5_000L
+        /** Post-handshake CCCD enables ride the renegotiated low-power link (~2s listen windows). */
+        const val DATA_PLANE_CCCD_TIMEOUT_MS = 20_000L
 
         // No connection-priority manipulation for Libre 3: every preset hurt (HIGH/BALANCED →
         // random status=8, LOW_POWER → handshake too slow, any mid-session change → status=19).

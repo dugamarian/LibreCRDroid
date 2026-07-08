@@ -293,7 +293,20 @@
     <string name="alarm_channel_name">Alarme glicemie</string>
     <string name="alarm_channel_desc">Alarme glicemie scăzută / ridicată</string>
 
-    <!-- Live unusable-reading state (VALUE_UNAVAILABLE / data-quality): shown instead of a stale value -->
+    <!-- Staleness safety net: no glucose liveness event for the threshold -->
+    <string name="staleness_channel_name">Alertă lipsă citiri</string>
+    <string name="staleness_channel_desc">Alertă când citirile de glicemie nu mai sosesc</string>
+    <string name="staleness_alert_title">Fără citiri de glicemie</string>
+    <string name="staleness_alert_detail">Nicio citire nouă de %1$d min. Verifică ceasul sau senzorul.</string>
+    <string name="alarms_staleness_section">Lipsă citiri</string>
+    <string name="alarms_staleness">Alertă lipsă citiri</string>
+    <string name="alarms_staleness_desc">Notificare când citirile nu mai sosesc de ~10 minute. Respectă comutatorul general și orele active.</string>
+
+    <!-- Live unavailable-reading / lost BLE state: shown instead of a stale value -->
+    <string name="sensor_out_of_range">Out of range</string>
+    <string name="sensor_out_of_range_short" translatable="false">OOR</string>
+
+    <!-- Patch-status sensor error: shown only when the sensor reports a real attention/error state -->
     <string name="sensor_error">Eroare senzor</string>
     <string name="sensor_error_short" translatable="false">SE</string>
 

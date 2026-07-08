@@ -39,7 +39,8 @@ import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.ble.GlucoseUi
-import re.abbot.librecr.app.ble.isActiveSensorError
+import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
+import re.abbot.librecr.app.ble.isUnavailableForGlucoseDisplay
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.isFreshGlucose
 import re.abbot.librecr.app.log.GlucoseTimelineTracker
@@ -76,17 +77,25 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     val statusLine by LibreCR.manager.statusLine.collectAsState()
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-    // A fresh unusable live reading (sensor error) is the newest sensor state: show the error
-    // instead of falling back to the older stored value. mgDL is nulled so the headline renders
-    // the sensor-error text even when the raw packet carried a (bad-quality) number.
+    val attention = sensorStatus?.attention ?: Libre3SensorAttention.None
+    val hasSensorAttention = attention != Libre3SensorAttention.None
+    val liveUnavailable = local.isActiveGlucoseUnavailable(nowMs)
+    val connectionUnavailable = state.isUnavailableForGlucoseDisplay()
+    // A fresh unavailable live reading is the newest glucose state: show "out of range" instead of
+    // falling back to the older stored value. Real sensor errors still come from patch-status attention.
     val glucose: GlucoseUi? = when {
-        local.isActiveSensorError(nowMs) -> local?.copy(mgDL = null)
+        hasSensorAttention -> local?.copy(mgDL = null)
+            ?: remote?.takeIf { isFreshGlucose(it.receivedAtMs, nowMs) }?.let {
+                GlucoseUi(null, it.trend, it.lifeCount, false, it.receivedAtMs, it.deltaMgDlPerMin)
+            }
+        liveUnavailable -> local?.copy(mgDL = null)
         else -> local
             ?.takeIf { it.usable && it.mgDL != null && isFreshGlucose(it.receivedAtMs, nowMs) }
             ?: remote?.takeIf { isFreshGlucose(it.receivedAtMs, nowMs) }?.let {
                 GlucoseUi(it.mgDL, it.trend, it.lifeCount, it.mgDL in 1..500, it.receivedAtMs, it.deltaMgDlPerMin)
             }
     }
+    val outOfRange = !hasSensorAttention && (liveUnavailable || (glucose == null && connectionUnavailable))
     // Closes the watch→phone timeline: the relayed reading is now on screen. Keyed by the
     // reading's identity so it fires once per reading, not on every recomposition.
     LaunchedEffect(glucose?.lifeCount, glucose?.receivedAtMs) {
@@ -134,9 +143,15 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 val mgDl = glucose?.mgDL
                 val valueColor = mgDl?.let { glucoseColors.forMgDl(it, settings.targetLow, settings.targetHigh) }
                     ?: MaterialTheme.colorScheme.onSurface
+                val valueText = when {
+                    mgDl != null -> settings.unit.format(mgDl)
+                    hasSensorAttention -> sensorAttentionPresentation(attention)?.title ?: stringResource(R.string.sensor_error)
+                    outOfRange -> stringResource(R.string.sensor_out_of_range)
+                    else -> stringResource(R.string.standby_no_reading)
+                }
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = mgDl?.let { settings.unit.format(it) } ?: stringResource(R.string.sensor_error),
+                        text = valueText,
                         fontSize = if (mgDl == null) 36.sp else 76.sp,
                         lineHeight = if (mgDl == null) 40.sp else 80.sp,
                         fontWeight = FontWeight.Bold,
@@ -147,7 +162,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        if (TrendArrowShape.hasArrow(glucose?.trend)) {
+                        if (mgDl != null && TrendArrowShape.hasArrow(glucose?.trend)) {
                             TrendArrow(
                                 trend = glucose?.trend,
                                 color = valueColor,
@@ -441,5 +456,5 @@ private fun statusText(state: ConnectionState, statusLine: String): String = whe
     ConnectionState.HANDSHAKING -> stringResource(R.string.status_handshaking)
     ConnectionState.STREAMING -> stringResource(R.string.status_streaming)
     ConnectionState.RECONNECTING -> stringResource(R.string.status_reconnecting)
-    ConnectionState.ERROR -> statusLine.ifBlank { stringResource(R.string.status_error) }
+    ConnectionState.ERROR -> stringResource(R.string.status_reconnecting)
 }

@@ -22,6 +22,8 @@ data class AlarmSettings(
     val highEnabled: Boolean = true,
     val highMgDl: Int = 240,
     val snoozeMinutes: Int = 30,
+    /** Staleness safety net (no readings for ~10 min). Follows the master switch + active hours. */
+    val stalenessEnabled: Boolean = true,
     /** When enabled, non-urgent alarms only fire inside [activeStartMinutes, activeEndMinutes). */
     val activeHoursEnabled: Boolean = false,
     val activeStartMinutes: Int = 8 * 60,
@@ -94,6 +96,7 @@ class SettingsStore(private val context: Context) {
     private val keyAlarmHighEnabled = booleanPreferencesKey("alarm_high_enabled")
     private val keyAlarmHigh = intPreferencesKey("alarm_high_mgdl")
     private val keyAlarmSnooze = intPreferencesKey("alarm_snooze_minutes")
+    private val keyAlarmStalenessEnabled = booleanPreferencesKey("alarm_staleness_enabled")
     private val keyActiveHoursEnabled = booleanPreferencesKey("alarm_active_hours_enabled")
     private val keyActiveStart = intPreferencesKey("alarm_active_start")
     private val keyActiveEnd = intPreferencesKey("alarm_active_end")
@@ -153,6 +156,7 @@ class SettingsStore(private val context: Context) {
                 highEnabled = p[keyAlarmHighEnabled] ?: defaults.highEnabled,
                 highMgDl = p[keyAlarmHigh] ?: defaults.highMgDl,
                 snoozeMinutes = p[keyAlarmSnooze] ?: defaults.snoozeMinutes,
+                stalenessEnabled = p[keyAlarmStalenessEnabled] ?: defaults.stalenessEnabled,
                 activeHoursEnabled = p[keyActiveHoursEnabled] ?: defaults.activeHoursEnabled,
                 activeStartMinutes = p[keyActiveStart] ?: defaults.activeStartMinutes,
                 activeEndMinutes = p[keyActiveEnd] ?: defaults.activeEndMinutes,
@@ -251,6 +255,7 @@ class SettingsStore(private val context: Context) {
         it[keyAlarmHighEnabled] = a.highEnabled
         it[keyAlarmHigh] = a.highMgDl
         it[keyAlarmSnooze] = a.snoozeMinutes
+        it[keyAlarmStalenessEnabled] = a.stalenessEnabled
         it[keyActiveHoursEnabled] = a.activeHoursEnabled
         it[keyActiveStart] = a.activeStartMinutes
         it[keyActiveEnd] = a.activeEndMinutes
