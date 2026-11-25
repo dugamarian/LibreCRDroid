@@ -12,6 +12,7 @@ object Routes {
     const val ANDROID_AUTO = "settings/android_auto"
     const val BMW_IDRIVE = "settings/bmw_idrive"
     const val CLOUD = "settings/cloud"
+    const val GLUCOSE_BROADCAST = "settings/glucose_broadcast"
     const val FLOATING = "settings/floating"
     const val AOD = "settings/aod"
     const val WEAR_APPEARANCE = "settings/wear_appearance"

@@ -9,7 +9,7 @@ import re.abbot.librecr.protocol.TrendArrowShape
 
 /** White on transparent, as required by OngoingActivity, including ambient mode. */
 internal object WearLiveUpdateIcon {
-    fun create(content: WearLiveUpdateContent, nowMs: Long): Bitmap {
+    fun create(content: WearLiveUpdateContent): Bitmap {
         val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -35,8 +35,8 @@ internal object WearLiveUpdateIcon {
         fitText(canvas, content.value, 64f, paint)
         paint.textSize = 23f
         val secondary = when {
-            content.reading != null -> "${content.delta} ${content.ageMinutes(nowMs)}′"
-            content.hasFreshObservation -> "${content.ageMinutes(nowMs)}′"
+            content.reading != null -> "${content.delta} ${content.observationTime()}"
+            content.hasFreshObservation -> content.observationTime()
             else -> content.delta
         }
         fitText(canvas, secondary, 91f, paint)

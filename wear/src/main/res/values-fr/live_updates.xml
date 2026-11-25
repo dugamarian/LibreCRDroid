@@ -2,11 +2,10 @@
 <resources>
     <string name="wear_live_title">LibreCR · glucose en direct</string>
     <string name="wear_live_channel">Glucose en direct</string>
-    <string name="wear_live_age">%1$d min</string>
     <string name="wear_live_delta">Δ %1$s %2$s/min</string>
     <string name="wear_live_pin">Activer Live Updates</string>
     <string name="wear_live_unpin">Masquer Live Updates</string>
     <string name="wear_live_options">Live Updates</string>
-    <string name="wear_live_description">Tendance, glucose, delta et minutes depuis la mesure. L’affichage sur le cadran dépend de la montre.</string>
+    <string name="wear_live_description">Tendance, glucose, delta et temps écoulé depuis la mesure. L’affichage sur le cadran dépend de la montre.</string>
     <string name="wear_live_close">Fermer</string>
 </resources>

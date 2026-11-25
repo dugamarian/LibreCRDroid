@@ -73,6 +73,7 @@ fun WearAppearanceScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         WearDeviceSelector()
+        WearWeatherSettings()
 
         SectionCard(stringResource(R.string.wear_appearance_preview)) {
             WearFacePreview(

@@ -38,7 +38,6 @@ import re.abbot.librecr.app.wear.WearDataSync
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
 import re.abbot.librecr.app.wear.ReceiverSessionBackup
 import re.abbot.librecr.protocol.connection.FailedReconnectTracker
-import re.abbot.librecr.protocol.connection.RecoveryPolicy
 import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
 import re.abbot.librecr.app.wear.complication.StaleRepaintScheduler
 import re.abbot.librecr.protocol.dataplane.DataFrame
@@ -91,21 +90,12 @@ private data class BackfillCoverage(
     val active: Boolean,
 )
 
-private data class ReconnectTrigger(
-    val reason: String,
-    val status: Int?,
-    val connectionGenerationId: Long,
-)
-
-internal const val STATUS8_GATT_CONNECT_WATCHDOG_MS = 8_000L
-internal const val STATUS8_SCAN_TIMEOUT_MS = 70_000L
-internal const val STATUS8_FAST_WAKE_LOCK_TIMEOUT_MS = 40_000L
-internal const val STATUS8_SCAN_WAKE_LOCK_TIMEOUT_MS = 75_000L
+/** Covers a direct connect or, from link-up, service discovery and the handshake subscriptions. */
 internal const val CONNECTION_ESTABLISH_WAKE_LOCK_TIMEOUT_MS = 70_000L
-
-/** A background auto-connect is controller-owned and intentionally has no app-side teardown timer. */
-internal fun sensorConnectTimeoutMs(autoConnect: Boolean, directTimeoutMs: Long): Long? =
-    if (autoConnect) null else directTimeoutMs
+/** From a lost link until the replacement controller connect has been issued. */
+internal const val LINK_LOSS_REARM_WAKE_LOCK_TIMEOUT_MS = 15_000L
+/** Kept past a back-off so the connect request reaches the Bluetooth stack before the watch sleeps. */
+internal const val REARM_WAKE_LOCK_MARGIN_MS = 10_000L
 
 /**
  * The live in-memory reading → the display/persistence model, or null for a non-usable reading.
@@ -153,6 +143,13 @@ class SensorConnectionManager(
     private val failedReconnects = FailedReconnectTracker()
     val failedReconnectCount: Int get() = synchronized(failedReconnects) { failedReconnects.failures }
     @Volatile private var activeConnection: SensorConnection? = null
+
+    /**
+     * How long the loop's current sensor link has been up, or null while none is. Lets the handoff
+     * status tell a watch finishing its own reconnect apart from one that has lost the sensor.
+     */
+    fun liveLinkAgeMs(): Long? = activeConnection?.linkAgeMs()
+
     @Volatile private var cachedPhase5RawKey: ByteArray? = null
     /** Consecutive non-mismatch cached-reconnect failures; a correct key survives transient blips. */
     @Volatile private var cachedReconnectFailures: Int = 0
@@ -166,16 +163,15 @@ class SensorConnectionManager(
     // exclusively by validated sensor-side signals — GATT disconnect, no-data watchdog, fragment-assembly
     // timeout. The phone / Data Layer NEVER triggers it. See requestSensorReconnect(). ---
     @Volatile private var sensorOnline = false
-    @Volatile private var reconnectSignal: CompletableDeferred<ReconnectTrigger>? = null
+    @Volatile private var reconnectSignal: CompletableDeferred<Unit>? = null
     @Volatile private var pendingReconnectReason: String = "initial"
     @Volatile private var lastDisconnectStatus: Int? = null
     @Volatile private var reconnectAttempt = 0
-    /** One-shot escape from a background auto-connect loop which failed during establishment. */
+    /** One-shot escape from a controller connect which failed before any link came up. */
     @Volatile private var forceDirectConnectNext = false
     @Volatile private var reconnectStartedAtMs = 0L
     @Volatile private var awaitingFirstReadingAfterReconnect = false
     @Volatile private var reconnectLastGoodLifeCount: Int? = null
-    @Volatile private var status8RecoveryActive = false
     @Volatile private var recoveryWakeLock: PowerManager.WakeLock? = null
     private val nextConnectionGenerationId = AtomicLong(1L)
     @Volatile private var activeConnectionGenerationId = 0L
@@ -198,6 +194,8 @@ class SensorConnectionManager(
     private val adapter by lazy {
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
     }
+
+    val isRunning: Boolean get() = loopJob?.isActive == true
 
     @Synchronized
     fun start(
@@ -228,7 +226,6 @@ class SensorConnectionManager(
         sensorOnline = false
         reconnectSignal = null
         awaitingFirstReadingAfterReconnect = false
-        status8RecoveryActive = false
         synchronized(backfillCoverageLock) {
             backfillCoverage = null
             pendingClinicalBackfill = null
@@ -273,11 +270,21 @@ class SensorConnectionManager(
             closeAndInvalidateConnection(connection, "manager_stop")
         }
         releaseRecoveryWakeLock("manager_stop")
-        status8RecoveryActive = false
         _state.value = ConnectionState.IDLE
         _statusLine.value = "stopped"
         BleLog.log("manager: stop requested; active GATT closed")
         return job
+    }
+
+    /**
+     * A Bluetooth restart forgets every GATT client without telling the app, including a controller
+     * connect this loop is still parked on. Failing that wait lets the loop arm a fresh connect on
+     * the restarted stack instead of waiting for a callback that can no longer arrive.
+     */
+    fun onBluetoothRestarted() {
+        if (activeConnection?.abortPendingConnect("bluetooth_restarted") == true) {
+            reconLog("SENSOR_CONNECT_ABORTED reason=bluetooth_restarted")
+        }
     }
 
     /**
@@ -316,26 +323,20 @@ class SensorConnectionManager(
         reconnectLastGoodLifeCount = lastSentReading?.lifeCount ?: lifeCountTracker.lastContiguousLifeCount
         reconnectStartedAtMs = System.currentTimeMillis()
         awaitingFirstReadingAfterReconnect = true
-        if (status == GATT_CONNECTION_TIMEOUT_STATUS) {
-            status8RecoveryActive = true
-            acquireRecoveryWakeLock(
-                timeoutMs = STATUS8_FAST_WAKE_LOCK_TIMEOUT_MS,
-                phase = "fast_gatt",
-            )
-            reconLog(
-                "SENSOR_STATUS_8_RECOVERY_START generation=$generationId " +
-                    "watchdogMs=$STATUS8_GATT_CONNECT_WATCHDOG_MS",
-            )
-        }
+        // The loop must close this GATT and hand a new connect to the controller before the watch
+        // can go back to sleep; this may be the GATT callback that woke it.
+        acquireRecoveryWakeLock(
+            timeoutMs = LINK_LOSS_REARM_WAKE_LOCK_TIMEOUT_MS,
+            phase = "link_loss_rearm",
+        )
         val age = if (lastGlucoseAt.get() > 0) System.currentTimeMillis() - lastGlucoseAt.get() else -1
 
         reconLog(
             "SENSOR_DISCONNECTED status=${describeGattStatus(status)} lastPacketAgeMs=$age attempt=$reconnectAttempt " +
                 "reason=$reason lastGoodLifeCount=${reconnectLastGoodLifeCount ?: -1}",
         )
-        // Wake the serialized owner before collecting any ancillary diagnostics below. This is the
-        // immediate status=8 recovery edge; no delay/backoff is inserted ahead of gatt.connect().
-        signal.complete(ReconnectTrigger(reason, status, generationId))
+        // Wake the serialized owner before collecting any ancillary diagnostics below.
+        signal.complete(Unit)
         // Deliberately NO log ship here: pushing ~500 log lines to the phone rides Bluetooth
         // Classic when the Wear link has no Wi-Fi (typically outdoors), contending for the shared
         // combo antenna exactly while the BLE reconnect needs it. The ship on reconnect success
@@ -367,12 +368,15 @@ class SensorConnectionManager(
 
     @Synchronized
     private fun acquireRecoveryWakeLock(timeoutMs: Long, phase: String) {
-        releaseRecoveryWakeLock("replace_$phase")
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        val previous = recoveryWakeLock
         recoveryWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleRecovery").also {
             it.setReferenceCounted(false)
             it.acquire(timeoutMs)
         }
+        // The predecessor goes only once its successor is held, so the watch cannot suspend between
+        // two recovery phases.
+        if (previous?.isHeld == true) previous.release()
         reconLog("SENSOR_RECOVERY_WAKE_LOCK_ACQUIRED phase=$phase timeoutMs=$timeoutMs")
     }
 
@@ -402,7 +406,8 @@ class SensorConnectionManager(
         22 -> "22/TERMINATED_BY_WATCH"
         62 -> "62/FAILED_TO_ESTABLISH"
         133 -> "133/GATT_ERROR"
-        147 -> "147/CONNECT_TIMEOUT"
+        // Wear OS 7 reports the supervision timeout of a live link as 147 instead of 8.
+        147 -> "147/LINK_TIMEOUT_SIGNAL_LOST"
         else -> status.toString()
     }
 
@@ -589,16 +594,6 @@ class SensorConnectionManager(
         ?.ifBlank { "none" }
         ?: "none"
 
-    /**
-     * Backoff keyed to the attempt number (1-based): fast first retries, then a bounded climb. Capped at
-     * [RECONNECT_BACKOFF_MAX_MS] — never the old 60s. The sensor re-advertises within seconds of a real
-     * drop, so attempt 1 fires almost immediately.
-     */
-    private fun reconnectDelayMs(attempt: Int): Long {
-        val idx = (attempt - 1).coerceIn(0, RECONNECT_BACKOFF_MS.size - 1)
-        return RECONNECT_BACKOFF_MS[idx].coerceAtMost(RECONNECT_BACKOFF_MAX_MS)
-    }
-
     fun acceptRemoteGlucose(reading: SensorStateStore.LastGlucose) {
         val current = _glucose.value
         if (current != null && current.lifeCount > reading.lifeCount) {
@@ -685,8 +680,6 @@ class SensorConnectionManager(
     private suspend fun runLoop(session: ImportedSession) {
         val scanner = SensorScanner(adapter)
         var currentSession = session
-        var retainedGattForFastReconnect: SensorConnection? = null
-        var status8RecoveryState: Status8RecoveryState? = null
         loadCachedPhase5RawKeyIfNeeded()
         seedContinuityState(currentSession)
         var reconnectingKnownSensor = cachedPhase5RawKey != null
@@ -696,12 +689,7 @@ class SensorConnectionManager(
             var conn: SensorConnection? = null
             var attemptFailure: String? = null
             var attemptFailureStatus: Int? = null
-            var keepGattForFastReconnect = false
-            var continueImmediately = false
-            var fastGattAttempt = false
-            var recoveryScanAttempt = false
-            var controllerHandoffAttempt = false
-            var connectionAutoConnect = false
+            var loopCancelled = false
             try {
                 if (!adapter.isEnabled) {
                     _state.value = ConnectionState.RECONNECTING
@@ -713,9 +701,7 @@ class SensorConnectionManager(
                 }
 
                 val canResume = cachedPhase5RawKey != null
-                // A status=8 recovery always uses the existing cached session (resume=true). The
-                // stale-key full-handshake probe remains available to unrelated/ordinary attempts.
-                val probeFullHandshake = !status8RecoveryActive && canResume &&
+                val probeFullHandshake = canResume &&
                     cachedReconnectFailures >= CACHED_RECONNECT_PROBE_AFTER_FAILURES
                 _statusLine.value = when {
                     probeFullHandshake -> "preparing full-handshake probe"
@@ -734,189 +720,87 @@ class SensorConnectionManager(
                     if (!canResume || probeFullHandshake) prepareFirstPairEphemeral() else null
                 kotlin.coroutines.coroutineContext.ensureActive()
 
-                val disconnected = CompletableDeferred<ReconnectTrigger>()
+                val disconnected = CompletableDeferred<Unit>()
                 reconnectSignal = disconnected
-                fun installDisconnectCallback(connection: SensorConnection, autoConnect: Boolean) {
-                    connection.onDisconnected = { status ->
-                        if (
-                            shouldRetryWithDirectConnect(
-                                autoConnect = autoConnect,
-                                status = status,
-                                connectionWasStreaming = sensorOnline,
-                            ) &&
-                            !status8RecoveryActive
-                        ) {
-                            forceDirectConnectNext = true
-                            reconLog(
-                                "SENSOR_DIRECT_CONNECT_ARMED status=${describeGattStatus(status)} " +
-                                    "reason=auto_connect_establishment_failure attempt=$reconnectAttempt",
-                            )
-                        }
-                        requestSensorReconnect("gatt_disconnect", status, connection.diagnosticSnapshot())
+                val knownAddress = currentSession.bleAddress
+                    .takeIf { BluetoothAdapter.checkBluetoothAddress(it.uppercase()) }
+                    ?.uppercase()
+                val device: BluetoothDevice
+                val connectionAutoConnect: Boolean
+                if (knownAddress != null) {
+                    device = adapter.getRemoteDevice(knownAddress)
+                    val directFallback = forceDirectConnectNext
+                    forceDirectConnectNext = false
+                    connectionAutoConnect = shouldUseControllerAutoConnect(
+                        reconnectAttempt = reconnectAttempt,
+                        directFallbackArmed = directFallback,
+                    )
+                    if (directFallback) {
+                        reconLog(
+                            "SENSOR_CONNECT_MODE_FALLBACK mode=direct " +
+                                "reason=previous_auto_connect_establishment_failure attempt=$reconnectAttempt",
+                        )
                     }
-                }
-
-                val c: SensorConnection
-                val deviceAddress: String
-                val recoveryDecision = status8RecoveryState
-                    ?.next(retainedGattAvailable = retainedGattForFastReconnect != null)
-                if (recoveryDecision != null) {
-                    status8RecoveryState = recoveryDecision.nextState
-                    reconLog(
-                        "SENSOR_STATUS_8_RECOVERY_PHASE phase=${recoveryDecision.phase} " +
-                            "fastConsumed=${recoveryDecision.nextState.fastGattConsumed} " +
-                            "scanConsumed=${recoveryDecision.nextState.activeScanConsumed}",
-                    )
-                }
-                if (recoveryDecision?.phase == Status8RecoveryPhase.RETRY_RETAINED_GATT) {
-                    val retained = checkNotNull(retainedGattForFastReconnect) {
-                        "status=8 retained-GATT phase selected without a GATT"
-                    }
-                    retainedGattForFastReconnect = null
-                    fastGattAttempt = true
-                    c = retained
-                    conn = c
-                    activeConnection = c
-                    deviceAddress = c.deviceAddress
-                    installDisconnectCallback(c, autoConnect = false)
-                    _state.value = ConnectionState.RECONNECTING
-                    _statusLine.value = "fast reconnect $deviceAddress"
-                    // Reset the callback-acquired bridge lock at actual dispatch. This phase can
-                    // consume ~35s at its configured bounds, so scheduler latency must not eat it.
-                    acquireRecoveryWakeLock(
-                        timeoutMs = STATUS8_FAST_WAKE_LOCK_TIMEOUT_MS,
-                        phase = "fast_gatt_retry",
-                    )
-                    reconLog(
-                        "SENSOR_GATT_CONNECT_RETRY_DISPATCH generation=${c.connectionGenerationId} " +
-                            "device=$deviceAddress attempt=$reconnectAttempt",
-                    )
-                    c.reconnectAndDiscoverExisting(
-                        connectTimeoutMs = STATUS8_GATT_CONNECT_WATCHDOG_MS,
-                        discoverTimeoutMs = RECOVERY_DISCOVER_TIMEOUT_MS,
-                    )
-                } else if (recoveryDecision?.phase == Status8RecoveryPhase.ACTIVE_SCAN_ONCE) {
-                    recoveryScanAttempt = true
+                } else {
                     _state.value = ConnectionState.SCANNING
-                    _statusLine.value = "recovery scan for ${currentSession.bleAddress}"
-                    acquireRecoveryWakeLock(
-                        timeoutMs = STATUS8_SCAN_WAKE_LOCK_TIMEOUT_MS,
-                        phase = "active_scan",
+                    _statusLine.value = "scanning for ${currentSession.bleAddress}"
+                    val scanTimeoutMs = if (reconnectAttempt == 0) COLD_SCAN_TIMEOUT_MS else RECONNECT_SCAN_TIMEOUT_MS
+                    reconLog(
+                        "SENSOR_SCAN_START target=${currentSession.bleAddress} timeoutMs=$scanTimeoutMs " +
+                            "attempt=$reconnectAttempt",
                     )
-                    val scanGenerationId = nextConnectionGenerationId.get()
-                    val scan = scanner.findSensorForRecovery(
-                        targetAddress = currentSession.bleAddress,
-                        targetDeviceName = currentSession.bleDeviceName,
-                        timeoutMs = STATUS8_SCAN_TIMEOUT_MS,
-                        connectionGenerationId = scanGenerationId,
-                    ) ?: throw IllegalStateException("recovery scan did not find sensor")
-                    c = newSensorConnection(scan.device)
-                    conn = c
-                    deviceAddress = scan.device.address
-                    installDisconnectCallback(c, autoConnect = false)
-                    _state.value = ConnectionState.CONNECTING
-                    _statusLine.value = "connecting $deviceAddress"
+                    val scan = scanner.findSensor(
+                        currentSession.bleAddress,
+                        currentSession.bleDeviceName,
+                        timeoutMs = scanTimeoutMs,
+                    ) ?: throw IllegalStateException("sensor not found")
+                    reconLog("SENSOR_SCAN_FOUND device=${scan.device.address}")
+                    currentSession = rememberObservedIdentity(currentSession, scan)
+                    device = scan.device
+                    connectionAutoConnect = false
+                }
+                val c = newSensorConnection(device)
+                conn = c
+                val deviceAddress = device.address
+                c.onDisconnected = { status, linkWasEstablished ->
+                    if (shouldRetryWithDirectConnect(connectionAutoConnect, status, linkWasEstablished)) {
+                        forceDirectConnectNext = true
+                        reconLog(
+                            "SENSOR_DIRECT_CONNECT_ARMED status=${describeGattStatus(status)} " +
+                                "reason=auto_connect_establishment_failure attempt=$reconnectAttempt",
+                        )
+                    }
+                    requestSensorReconnect("gatt_disconnect", status, c.diagnosticSnapshot())
+                }
+                _state.value = ConnectionState.CONNECTING
+                _statusLine.value = "connecting $deviceAddress"
+                reconLog(
+                    "SENSOR_CONNECT_START generation=${c.connectionGenerationId} " +
+                        "device=$deviceAddress autoConnect=$connectionAutoConnect " +
+                        "persistent=${connectionAutoConnect}",
+                )
+                if (!connectionAutoConnect) {
                     acquireRecoveryWakeLock(
                         timeoutMs = CONNECTION_ESTABLISH_WAKE_LOCK_TIMEOUT_MS,
-                        phase = "recovery_connect_discover",
-                    )
-                    reconLog(
-                        "SENSOR_CONNECT_GATT_NEW generation=${c.connectionGenerationId} " +
-                            "device=$deviceAddress autoConnect=false transport=LE",
-                    )
-                    c.connectAndDiscover(
-                        connectTimeoutMs = NEW_GATT_CONNECT_TIMEOUT_MS,
-                        discoverTimeoutMs = RECOVERY_DISCOVER_TIMEOUT_MS,
-                        autoConnect = false,
-                    )
-                } else {
-                    if (recoveryDecision?.phase == Status8RecoveryPhase.CONTROLLER_AUTO_CONNECT) {
-                        controllerHandoffAttempt = true
-                        status8RecoveryState = null
-                        status8RecoveryActive = false
-                        reconnectAttempt = maxOf(reconnectAttempt, 1)
-                        forceDirectConnectNext = false
-                        releaseRecoveryWakeLock("controller_handoff")
-                        reconLog(
-                            "SENSOR_STATUS_8_RECOVERY_HANDOFF reason=one_scan_consumed " +
-                                "next=controller_auto_connect delayMs=0",
-                        )
-                    }
-                    // Initial/NFC and non-status=8 behavior stays on the established path.
-                    val knownAddress = currentSession.bleAddress
-                        .takeIf { BluetoothAdapter.checkBluetoothAddress(it.uppercase()) }
-                        ?.uppercase()
-                    val device: BluetoothDevice
-                    if (knownAddress != null) {
-                        device = adapter.getRemoteDevice(knownAddress)
-                        val directFallback = forceDirectConnectNext
-                        forceDirectConnectNext = false
-                        connectionAutoConnect = shouldUseControllerAutoConnect(
-                            controllerHandoff = controllerHandoffAttempt,
-                            reconnectAttempt = reconnectAttempt,
-                            directFallbackArmed = directFallback,
-                        )
-                        if (directFallback) {
-                            reconLog(
-                                "SENSOR_CONNECT_MODE_FALLBACK mode=direct " +
-                                    "reason=previous_auto_connect_establishment_failure attempt=$reconnectAttempt",
-                            )
-                        }
-                    } else {
-                        _state.value = ConnectionState.SCANNING
-                        _statusLine.value = "scanning for ${currentSession.bleAddress}"
-                        val scanTimeoutMs = if (reconnectAttempt == 0) COLD_SCAN_TIMEOUT_MS else RECONNECT_SCAN_TIMEOUT_MS
-                        reconLog(
-                            "SENSOR_SCAN_START target=${currentSession.bleAddress} timeoutMs=$scanTimeoutMs " +
-                                "attempt=$reconnectAttempt",
-                        )
-                        val scan = scanner.findSensor(
-                            currentSession.bleAddress,
-                            currentSession.bleDeviceName,
-                            timeoutMs = scanTimeoutMs,
-                        ) ?: throw IllegalStateException("sensor not found")
-                        reconLog("SENSOR_SCAN_FOUND device=${scan.device.address}")
-                        currentSession = rememberObservedIdentity(currentSession, scan)
-                        device = scan.device
-                        connectionAutoConnect = false
-                    }
-                    c = newSensorConnection(device)
-                    conn = c
-                    deviceAddress = device.address
-                    installDisconnectCallback(c, autoConnect = connectionAutoConnect)
-                    _state.value = ConnectionState.CONNECTING
-                    _statusLine.value = "connecting $deviceAddress"
-                    reconLog(
-                        "SENSOR_CONNECT_START generation=${c.connectionGenerationId} " +
-                            "device=$deviceAddress autoConnect=$connectionAutoConnect " +
-                            "persistent=${connectionAutoConnect}",
-                    )
-                    if (!connectionAutoConnect) {
-                        acquireRecoveryWakeLock(
-                            timeoutMs = CONNECTION_ESTABLISH_WAKE_LOCK_TIMEOUT_MS,
-                            phase = "direct_connect",
-                        )
-                    }
-                    c.connectAndDiscover(
-                        // The opt-in fallback needs completed attempts: bound the otherwise
-                        // unbounded controller wait while recovering an already-known sensor.
-                        connectTimeoutMs = RecoveryPolicy.controllerConnectTimeout(
-                            AutomaticSensorHandoff.enabled, reconnectingKnownSensor, failedReconnectCount,
-                            connectionAutoConnect, DIRECT_GATT_CONNECT_TIMEOUT_MS,
-                        ),
-                        discoverTimeoutMs = STANDARD_DISCOVER_TIMEOUT_MS,
-                        autoConnect = connectionAutoConnect,
-                        onConnected = {
-                            // Do not hold an app wake lock during a passive controller wait. The
-                            // callback wakes the process; from this edge keep discovery + handshake
-                            // notification setup alive through Doze.
-                            acquireRecoveryWakeLock(
-                                timeoutMs = CONNECTION_ESTABLISH_WAKE_LOCK_TIMEOUT_MS,
-                                phase = "connected_discover",
-                            )
-                        },
+                        phase = "direct_connect",
                     )
                 }
+                c.connectAndDiscover(
+                    // A controller connect is never cut short: the sensor answers in one slot per
+                    // minute, and every gap between two attempts is a slot which can be missed.
+                    connectTimeoutMs = sensorConnectTimeoutMs(connectionAutoConnect, DIRECT_GATT_CONNECT_TIMEOUT_MS),
+                    discoverTimeoutMs = STANDARD_DISCOVER_TIMEOUT_MS,
+                    autoConnect = connectionAutoConnect,
+                    onLinkUp = {
+                        // No app wake lock is held during a passive controller wait. From the
+                        // callback which reports the link, keep discovery and the handshake
+                        // notification setup alive through Doze.
+                        acquireRecoveryWakeLock(
+                            timeoutMs = CONNECTION_ESTABLISH_WAKE_LOCK_TIMEOUT_MS,
+                            phase = "connected_discover",
+                        )
+                    },
+                )
 
                 _state.value = ConnectionState.HANDSHAKING
                 _statusLine.value = if (cachedPhase5RawKey != null) {
@@ -924,23 +808,15 @@ class SensorConnectionManager(
                 } else {
                     "handshake: full local derivation"
                 }
-                val authorizeAndEnable: suspend () -> AuthorizationOutcome = {
+                // Establishment and authorization are separate awake phases. The connect lock may
+                // have nearly expired here, so every handshake gets a fresh lock, taken before the
+                // connect lock is given up.
+                val auth = withHandshakeWakeLock {
+                    releaseRecoveryWakeLock("handshake_start")
                     authorize(c, currentSession, firstPairEphemeral, probeFullHandshake).also {
-                        c.refreshDataPlaneNotifications(forceRearm = fastGattAttempt)
+                        c.refreshDataPlaneNotifications()
                     }
                 }
-                // Establishment and authorization are separate awake phases. A scan/connect lock
-                // may have nearly expired here, so every handshake gets a fresh lock; a retained
-                // GATT gets the longer bound needed for seven serialized off→on CCCD cycles.
-                releaseRecoveryWakeLock("handshake_start")
-                val auth = withHandshakeWakeLock(
-                    timeoutMs = if (fastGattAttempt) {
-                        DATA_PLANE_REARM_WAKE_LOCK_TIMEOUT_MS
-                    } else {
-                        HANDSHAKE_WAKE_LOCK_TIMEOUT_MS
-                    },
-                    block = authorizeAndEnable,
-                )
                 val material = auth.result.sessionMaterial
                 BleLog.log(
                     "manager: ${auth.mode} authorized kEnc=${material.kEnc.toHex().take(8)}… " +
@@ -968,8 +844,6 @@ class SensorConnectionManager(
                 lastGlucoseAt.set(System.currentTimeMillis())
                 c.markStreaming()
                 sensorOnline = true
-                status8RecoveryState = null
-                status8RecoveryActive = false
                 synchronized(backfillCoverageLock) {
                     backfillCoverage = null
                     pendingClinicalBackfill = null
@@ -981,7 +855,7 @@ class SensorConnectionManager(
                 logTransportSnapshot("streaming_start")
                 c.readPhy()
 
-                val trigger = coroutineScope {
+                coroutineScope {
                     val backfillRequests = Channel<BackfillRequest>(Channel.UNLIMITED)
                     val backfill = launch {
                         for (request in backfillRequests) {
@@ -1006,38 +880,21 @@ class SensorConnectionManager(
                     val watchdog = launch { watchdog(c) }
                     val linkDiagnostics = launch { monitorLinkDiagnostics(c) }
 
-                    val disconnectTrigger = disconnected.await()
+                    disconnected.await()
                     collectors.forEach { it.cancel() }
                     immediateBackfill.cancel()
                     backfill.cancel()
                     backfillRequests.close()
                     watchdog.cancel()
                     linkDiagnostics.cancel()
-                    disconnectTrigger
-                }
-
-                if (
-                    trigger.status == GATT_CONNECTION_TIMEOUT_STATUS &&
-                    trigger.connectionGenerationId == c.connectionGenerationId
-                ) {
-                    // Preserve precisely this GATT for one immediate BluetoothGatt.connect().
-                    status8RecoveryState = Status8RecoveryState()
-                    retainedGattForFastReconnect = c
-                    keepGattForFastReconnect = true
-                    continueImmediately = true
-                    reconLog(
-                        "SENSOR_GATT_RETAINED_FOR_SINGLE_RETRY generation=${c.connectionGenerationId}",
-                    )
                 }
             } catch (e: TimeoutCancellationException) {
                 attemptFailure = "op_timeout: ${e.message}"
                 reconLog("SENSOR_RECONNECT_FAILED reason=op_timeout ${e.message}")
                 _statusLine.value = "error: ${e.message}"
-                if (status8RecoveryState != null && (fastGattAttempt || recoveryScanAttempt)) {
-                    continueImmediately = true
-                }
             } catch (e: CancellationException) {
                 attemptFailure = "cancelled"
+                loopCancelled = true
                 conn?.disconnect()
                 throw e
             } catch (e: Exception) {
@@ -1045,18 +902,23 @@ class SensorConnectionManager(
                 attemptFailureStatus = (e as? GattDisconnectedException)?.gattStatus
                 reconLog("SENSOR_RECONNECT_FAILED reason=${e.message}")
                 _statusLine.value = "error: ${e.message}"
-                if (status8RecoveryState != null && (fastGattAttempt || recoveryScanAttempt)) {
-                    continueImmediately = true
-                }
             } finally {
                 sensorOnline = false
                 reconnectSignal = null
-                if (conn != null && !keepGattForFastReconnect) {
+                if (loopCancelled) {
+                    releaseRecoveryWakeLock("cancelled")
+                } else if (conn != null && attemptFailure != null) {
+                    // Closing this GATT, the pause and handing the next connect to the controller
+                    // are one awake stretch; a suspend anywhere in it can outlast the sensor's slot.
+                    // (A lost streaming link already took this lock in requestSensorReconnect.)
+                    acquireRecoveryWakeLock(
+                        timeoutMs = LINK_LOSS_REARM_WAKE_LOCK_TIMEOUT_MS,
+                        phase = "attempt_failed_rearm",
+                    )
+                }
+                if (conn != null) {
                     closeAndInvalidateConnection(conn, attemptFailure ?: pendingReconnectReason)
                     reconLog("SENSOR_GATT_CLOSED reason=${attemptFailure ?: pendingReconnectReason}")
-                }
-                if (attemptFailure != null && !keepGattForFastReconnect) {
-                    releaseRecoveryWakeLock("attempt_failed")
                 }
             }
 
@@ -1066,35 +928,32 @@ class SensorConnectionManager(
                 AutomaticSensorHandoff.retryIfNeeded()
             }
 
-            if (continueImmediately) {
-                if (fastGattAttempt) {
-                    reconLog("SENSOR_FAST_GATT_FAILED_FALLBACK_SCAN delayMs=0")
-                } else if (recoveryScanAttempt) {
-                    reconLog("SENSOR_RECOVERY_SCAN_FAILED_HANDOFF_CONTROLLER delayMs=0")
-                }
-                continue
-            }
-
-            if (status8RecoveryState != null) {
-                reconLog(
-                    "SENSOR_STATUS_8_RECOVERY_NEXT delayMs=0 " +
-                        "reason=${attemptFailure?.let(::logToken) ?: pendingReconnectReason}",
-                )
-                continue
-            }
-
             reconnectAttempt += 1
-            val delayMs = reconnectDelayMs(reconnectAttempt)
+            val controllerRearm = BluetoothAdapter.checkBluetoothAddress(currentSession.bleAddress.uppercase())
+            val backoff = reconnectBackoff(reconnectAttempt, controllerRearm)
             _state.value = ConnectionState.RECONNECTING
-            _statusLine.value = "reconnecting in ${delayMs / 1000}s"
+            _statusLine.value = "reconnecting in ${backoff.delayMs / 1000}s"
             val delayReason = attemptFailure?.let(::logToken) ?: pendingReconnectReason
             val delayStatus = if (attemptFailure != null) attemptFailureStatus else lastDisconnectStatus
             reconLog(
-                "SENSOR_RECONNECT_DELAY attempt=$reconnectAttempt ms=$delayMs reason=$delayReason " +
-                    "status=${delayStatus ?: -1} resume=${cachedPhase5RawKey != null}",
+                "SENSOR_RECONNECT_DELAY attempt=$reconnectAttempt ms=${backoff.delayMs} awake=${backoff.keepAwake} " +
+                    "reason=$delayReason status=${delayStatus ?: -1} resume=${cachedPhase5RawKey != null}",
             )
-            delay(delayMs)
-            reconLog("SENSOR_BACKOFF_NEXT delayMs=${reconnectDelayMs(reconnectAttempt + 1)}")
+            if (backoff.keepAwake) {
+                // Doze freezes an unlocked delay for minutes while the sensor is connectable for a few
+                // seconds per minute. The margin outlives the delay, so the next connect request has
+                // reached the Bluetooth stack before the watch may sleep again.
+                acquireRecoveryWakeLock(
+                    timeoutMs = backoff.delayMs + REARM_WAKE_LOCK_MARGIN_MS,
+                    phase = "reconnect_backoff",
+                )
+            } else {
+                releaseRecoveryWakeLock("unlocked_backoff")
+            }
+            delay(backoff.delayMs)
+            reconLog(
+                "SENSOR_BACKOFF_NEXT delayMs=${reconnectBackoff(reconnectAttempt + 1, controllerRearm).delayMs}",
+            )
         }
     }
 
@@ -1157,7 +1016,9 @@ class SensorConnectionManager(
                 // retry the cached path. A stale key (sensor re-paired by another receiver) also fails
                 // this way — that case is recovered by the periodic full-handshake PROBE, which keeps
                 // this key as fallback and only replaces it after a *successful* full handshake.
-                cachedReconnectFailures += 1
+                // A radio which died mid-handshake says nothing about the key, so it does not count
+                // towards that probe: the probe costs minutes the watch cannot afford in an RF burst.
+                if (!isRadioLoss(e)) cachedReconnectFailures += 1
                 if (isKeyMismatch(e)) {
                     forgetPhase5RawKey()
                     cachedReconnectFailures = 0
@@ -1273,6 +1134,16 @@ class SensorConnectionManager(
         var t: Throwable? = error
         while (t != null) {
             if (t is AesCcmException || t is PairingFlowException.Phase6VerificationFailed) return true
+            t = t.cause
+        }
+        return false
+    }
+
+    /** True when the handshake ended because the link itself timed out, not because of the sensor's answer. */
+    private fun isRadioLoss(error: Throwable): Boolean {
+        var t: Throwable? = error
+        while (t != null) {
+            if (t is GattDisconnectedException && isLinkSupervisionTimeout(t.gattStatus)) return true
             t = t.cause
         }
         return false
@@ -1445,15 +1316,9 @@ class SensorConnectionManager(
                                         "missing=${r.lifeCount - lastGood - 1}",
                                 )
                             }
-                            status8RecoveryActive = false
                             releaseRecoveryWakeLock("first_glucose")
                             reconLog("SENSOR_RECOVERY_JOBS_CLEAN generation=${conn.connectionGenerationId}")
                             shipLogRateLimited()
-                        }
-                        // Backoff resets only on a real numeric reading, never merely on GATT connect.
-                        if (reconnectAttempt != 0) {
-                            reconLog("SENSOR_BACKOFF_RESET reason=first_valid_reading")
-                            reconnectAttempt = 0
                         }
                         StaleRepaintScheduler.armFrom(context, decodedTs)
                         // 4) Persist last — fire-and-forget via the store's single serialized writer.
@@ -1471,6 +1336,17 @@ class SensorConnectionManager(
                             ),
                         )
                         LibreComplicationUpdater.requestGlucose(context, r.lifeCount)
+                    }
+                    // The reconnect ladder restarts once realtime data decrypts again, never merely on
+                    // GATT connect. A packet without a value counts too: warm-up and sensor errors
+                    // deliver none for an hour, and every drop in that hour would otherwise use up the
+                    // exact, wake-locked re-arms.
+                    if (reconnectAttempt != 0) {
+                        reconLog(
+                            "SENSOR_BACKOFF_RESET reason=" +
+                                if (usable && mg != null) "first_valid_reading" else "first_decoded_reading",
+                        )
+                        reconnectAttempt = 0
                     }
                     // The value/unavailable event is buffered for the phone first and a usable value
                     // is queued locally before the contiguous cursor can be persisted.
@@ -2038,9 +1914,6 @@ class SensorConnectionManager(
         private const val HANDSHAKE_WAKE_LOCK_TIMEOUT_MS = 90_000L
         /** Seven CCCDs × off/on × 20s operation ceiling, plus authorization overhead. */
         private const val DATA_PLANE_REARM_WAKE_LOCK_TIMEOUT_MS = 6 * 60_000L
-        private const val GATT_CONNECTION_TIMEOUT_STATUS = 8
-        private const val NEW_GATT_CONNECT_TIMEOUT_MS = 20_000L
-        private const val RECOVERY_DISCOVER_TIMEOUT_MS = 12_000L
         private const val DIRECT_GATT_CONNECT_TIMEOUT_MS = 20_000L
         private const val STANDARD_DISCOVER_TIMEOUT_MS = 45_000L
 
@@ -2064,17 +1937,6 @@ class SensorConnectionManager(
         private const val COLD_SCAN_TIMEOUT_MS = 60_000L
         /** Reconnect: the sensor re-advertises within seconds of a real drop, so fail fast into backoff. */
         private const val RECONNECT_SCAN_TIMEOUT_MS = 12_000L
-        /** Per-attempt reconnect delay (1-based). Fast first retries, bounded climb — never the old 60s. */
-        private val RECONNECT_BACKOFF_MS = longArrayOf(
-            500L,     // attempt 1
-            2_000L,   // attempt 2
-            2_000L,   // attempt 3
-            5_000L,   // attempt 4
-            10_000L,  // attempt 5
-            20_000L,  // attempt 6
-            30_000L,  // attempt 7+
-        )
-        private const val RECONNECT_BACKOFF_MAX_MS = 30_000L
 
         private const val GLUCOSE_ISSUE_VALUE_UNAVAILABLE = "VALUE_UNAVAILABLE"
         private const val GLUCOSE_ISSUE_DATA_QUALITY = "DATA_QUALITY"

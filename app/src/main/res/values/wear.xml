@@ -1,0 +1,5 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string-array name="android_wear_capabilities" translatable="false" tools:ignore="UnusedResources">
+        <item>librecr_phone_sensor_receiver</item>
+    </string-array>
+</resources>

@@ -29,8 +29,24 @@ internal suspend fun handoffRpc(context: Context, nodeId: String, path: String, 
         ).awaitHandoff(), Charsets.UTF_8))
     }
 
+/** A stalled Play services query must not retain the handoff coordinator's mutex indefinitely. */
+internal suspend fun <T : Any> handoffQueryOrNull(
+    operation: String,
+    timeoutMs: Long = 5_000L,
+    query: suspend () -> T,
+): T? = try {
+    withTimeoutOrNull(timeoutMs) { query() }.also { result ->
+        if (result == null && BleLog.isEnabled()) BleLog.log("automatic handoff: query timeout operation=$operation timeoutMs=$timeoutMs")
+    }
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (failure: Exception) {
+    if (BleLog.isEnabled()) BleLog.log("automatic handoff: query failed operation=$operation error=${failure.javaClass.simpleName}")
+    null
+}
+
 internal suspend fun nearbyHandoffNode(context: Context, nodeId: String): Boolean =
-    withTimeoutOrNull(5_000L) {
+    handoffQueryOrNull("connected_nodes") {
         Wearable.getNodeClient(context).connectedNodes.awaitHandoff().any { it.id == nodeId && it.isNearby }
     } ?: false
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="broadcast_title">Glucose broadcasting</string>
+    <string name="broadcast_subtitle">Share glucose with other apps</string>
+    <string name="broadcast_enable">Broadcast glucose to other apps</string>
+    <string name="broadcast_description">Locally sends glucose, the original timestamp, trend and delta per minute in xDrip format. Works with both phone readings and readings relayed from the watch. Only valid readings less than 6 minutes old are sent.</string>
+    <string name="broadcast_sharing">Off by default. When enabled, compatible apps can receive your glucose data. If no recipients are specified, any app listening for this broadcast can receive it.</string>
+    <string name="broadcast_destinations_title">Recipient apps</string>
+    <string name="broadcast_packages">Package names (optional)</string>
+    <string name="broadcast_packages_hint">Example: com.example.glucose. Separate multiple packages with spaces or commas.</string>
+    <string name="broadcast_packages_error">Enter valid package names, for example com.example.glucose.</string>
+    <string name="broadcast_save">Save recipients</string>
+    <string name="broadcast_destinations_help">Leave blank for all compatible apps. If the receiving app does not get data in the background, enter its package name and save. Changes apply immediately; the latest valid reading is sent again with its original timestamp.</string>
+    <string name="broadcast_setup_title">Receiving app setup</string>
+    <string name="broadcast_setup">Enable xDrip broadcast reception in the app that will display glucose. The transmitted value is always in mg/dL; the receiving app can display mmol/L. The timestamp is preserved to calculate reading age. If data stops arriving, the receiving app must mark the reading as stale.</string>
+</resources>

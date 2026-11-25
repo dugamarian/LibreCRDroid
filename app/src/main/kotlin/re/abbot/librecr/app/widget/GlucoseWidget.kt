@@ -569,7 +569,7 @@ private fun WarmupBar(progress: Float, width: Dp) {
 private fun ChartCard(ui: GlucoseWidgetUi, modifier: GlanceModifier, plot: DpSize) {
     val context = LocalContext.current
     val label = chartWindowLabel(plot.width)
-    Column(modifier.widgetTile(WidgetColors.tile).padding(CardPadding)) {
+    Column(modifier.widgetTile().padding(CardPadding)) {
         Row(GlanceModifier.fillMaxWidth().height(context.captionHeight()), verticalAlignment = Alignment.Vertical.CenterVertically) {
             label?.let {
                 Text(

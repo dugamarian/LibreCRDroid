@@ -33,91 +33,6 @@ data class SensorScanResult(
 @SuppressLint("MissingPermission")
 class SensorScanner(private val adapter: BluetoothAdapter) {
 
-    /**
-     * Recovery-only scan: one filtered LOW_LATENCY pass, no batching, and the first matching
-     * advertisement wins. Unlike [findSensor], this never falls through to an unfiltered scan.
-     */
-    suspend fun findSensorForRecovery(
-        targetAddress: String?,
-        targetDeviceName: String?,
-        timeoutMs: Long,
-        connectionGenerationId: Long,
-    ): SensorScanResult? {
-        if (!adapter.isEnabled) return null
-        val scanner = adapter.bluetoothLeScanner ?: return null
-        val normalizedTargets = listOfNotNull(
-            normalizeIdentity(targetAddress),
-            normalizeIdentity(targetDeviceName),
-        ).toSet()
-        // Android ORs entries in the filter list. Keep every identity signal so a stale/rotated
-        // address does not make the whole recovery window blind while the advertised name remains
-        // stable. Software matching below still prevents selecting an unrelated Libre sensor.
-        val filters = buildList {
-            if (targetAddress != null && BluetoothAdapter.checkBluetoothAddress(targetAddress.uppercase())) {
-                add(ScanFilter.Builder().setDeviceAddress(targetAddress.uppercase()).build())
-            }
-            if (!targetDeviceName.isNullOrBlank()) {
-                add(ScanFilter.Builder().setDeviceName(targetDeviceName).build())
-            }
-            add(ScanFilter.Builder().setServiceUuid(ParcelUuid(LibreSensorGatt.SERVICE)).build())
-        }
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-            .setReportDelay(0L)
-            .build()
-        BleLog.log(
-            "$WEAR_BLE_TAG SENSOR_SCAN_START generation=$connectionGenerationId timeoutMs=$timeoutMs " +
-                "mode=LOW_LATENCY callback=ALL_MATCHES reportDelayMs=0 filters=${filters.size}",
-        )
-
-        return withTimeoutOrNull(timeoutMs) {
-            suspendCancellableCoroutine { cont ->
-                val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
-                lateinit var callback: ScanCallback
-                fun stop(reason: String) {
-                    if (!stopped.compareAndSet(false, true)) return
-                    runCatching { scanner.stopScan(callback) }
-                    BleLog.log(
-                        "$WEAR_BLE_TAG SENSOR_SCAN_STOP generation=$connectionGenerationId reason=$reason",
-                    )
-                }
-                callback = object : ScanCallback() {
-                    override fun onScanResult(callbackType: Int, result: ScanResult) {
-                        if (!cont.isActive) return
-                        val device = result.device
-                        val name = result.scanRecord?.deviceName ?: device.name
-                        if (normalizedTargets.isNotEmpty() && !matchesIdentity(device, name, normalizedTargets)) return
-                        BleLog.log(
-                            "$WEAR_BLE_TAG SENSOR_FIRST_ADVERTISEMENT generation=$connectionGenerationId " +
-                                "device=${device.address} name=${name ?: "<none>"} rssi=${result.rssi}",
-                        )
-                        stop("first_advertisement")
-                        if (cont.isActive) cont.resume(SensorScanResult(device, name))
-                    }
-
-                    override fun onScanFailed(errorCode: Int) {
-                        BleLog.log(
-                            "$WEAR_BLE_TAG SENSOR_SCAN_FAILED generation=$connectionGenerationId code=$errorCode",
-                        )
-                        stop("error_$errorCode")
-                        if (cont.isActive) cont.resume(null)
-                    }
-                }
-                runCatching { scanner.startScan(filters, settings, callback) }
-                    .onFailure {
-                        BleLog.log(
-                            "$WEAR_BLE_TAG SENSOR_SCAN_FAILED generation=$connectionGenerationId " +
-                                "reason=${it.message ?: it::class.java.simpleName}",
-                        )
-                        stop("start_failed")
-                        if (cont.isActive) cont.resume(null)
-                    }
-                cont.invokeOnCancellation { stop("timeout_or_cancel") }
-            }
-        }
-    }
-
     suspend fun findSensor(targetAddress: String?, targetDeviceName: String?, timeoutMs: Long): SensorScanResult? {
         val targets = listOfNotNull(
             normalizeIdentity(targetAddress),
@@ -252,9 +167,5 @@ class SensorScanner(private val adapter: BluetoothAdapter) {
         if (value == null) return null
         val n = value.filter { it.isLetterOrDigit() }.uppercase()
         return n.ifEmpty { null }
-    }
-
-    private companion object {
-        const val WEAR_BLE_TAG = "[WEAR-BLE]"
     }
 }

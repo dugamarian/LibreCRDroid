@@ -1,9 +1,10 @@
 package re.abbot.librecr.app.ble
 
 /**
- * Evidence which is available without changing the BLE link. Android's status=8 only states that
- * the controller's link-supervision timer expired; this assessment deliberately reports a likely
- * cause family, never a certainty which the controller did not expose.
+ * Evidence which is available without changing the BLE link. A supervision timeout (status 8, or
+ * 147 on Wear OS 7) only states that the controller's link-supervision timer expired; this
+ * assessment deliberately reports a likely cause family, never a certainty which the controller
+ * did not expose. Callers pass the loss of a link which had been established.
  */
 internal data class BleDisconnectEvidence(
     val status: Int,
@@ -22,13 +23,13 @@ internal data class BleDisconnectAssessment(
 )
 
 internal fun assessBleDisconnect(e: BleDisconnectEvidence): BleDisconnectAssessment {
-    if (e.status != 8) {
+    if (!isLinkSupervisionTimeout(e.status)) {
         return BleDisconnectAssessment(
             meaning = when (e.status) {
                 0 -> "local_disconnect"
                 19 -> "peer_terminated_connection"
                 22 -> "local_host_terminated_connection"
-                62, 147 -> "connection_establishment_failed"
+                62 -> "connection_establishment_failed"
                 133 -> "android_gatt_stack_error"
                 else -> "gatt_or_hci_error_${e.status}"
             },
@@ -88,27 +89,6 @@ internal fun assessBleDisconnect(e: BleDisconnectEvidence): BleDisconnectAssessm
     }
 }
 
-/**
- * Android may surface the controller's CONNECTION_FAILED_ESTABLISHMENT (0x3e) as the generic
- * GATT_ERROR (133). If a background auto-connect repeatedly reaches that state, retrying with the
- * same mode can remain stuck indefinitely. A one-shot direct connect restarts establishment through
- * Android's foreground path without discarding the cached Libre session.
- */
-internal fun shouldRetryWithDirectConnect(autoConnect: Boolean, status: Int): Boolean =
-    autoConnect && status in DIRECT_CONNECT_FALLBACK_STATUSES
-
-/**
- * During establishment, status 8 is also a failed controller attempt rather than a dropped live
- * session. A live status-8 link still uses the retained-GATT → scan → controller recovery policy.
- */
-internal fun shouldRetryWithDirectConnect(
-    autoConnect: Boolean,
-    status: Int,
-    connectionWasStreaming: Boolean,
-): Boolean =
-    shouldRetryWithDirectConnect(autoConnect, status) ||
-        (autoConnect && !connectionWasStreaming && status == 8)
-
 private fun evidenceText(e: BleDisconnectEvidence): String =
     "localRequest=${e.localDisconnectRequested},btEnabled=${e.bluetoothEnabled ?: "unknown"}," +
         "rssi=${e.rssiDbm ?: "unknown"},rssiAgeMs=${e.rssiAgeMs ?: -1}," +
@@ -117,8 +97,3 @@ private fun evidenceText(e: BleDisconnectEvidence): String =
 private const val RSSI_FRESH_MS = 90_000L
 private const val RSSI_WEAK_DBM = -82
 private const val RSSI_VERY_WEAK_DBM = -90
-private val DIRECT_CONNECT_FALLBACK_STATUSES = setOf(
-    62,  // HCI_CONNECTION_FAILED_ESTABLISHMENT (0x3e), when Android exposes the HCI value.
-    133, // GATT_ERROR, how the same failure was surfaced to the app on the Pixel Watch.
-    147, // GATT_CONNECTION_TIMEOUT on newer Android Bluetooth stacks.
-)

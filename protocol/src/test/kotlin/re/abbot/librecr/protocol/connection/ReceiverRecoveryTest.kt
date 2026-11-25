@@ -44,7 +44,7 @@ class ReceiverRecoveryTest {
     @Test fun `watch death recovers on phone without release acknowledgement`() = runTest {
         val f = Fake().apply { releaseAck = false }
         val c = monitoring(f)
-        f.time += RecoveryPolicy.SILENCE_MS
+        f.time += RecoveryPolicy.MONITOR_DEADLINE_MS
         c.tick()
         assertTrue(f.phoneRunning)
         assertEquals(RecoveryPhase.PHONE_CONNECTING, c.state!!.phase)
@@ -68,16 +68,18 @@ class ReceiverRecoveryTest {
         val c = monitoring(f)
         c.remotePacket("sensor", "watch", 10)
         repeat(3) { f.time += 60_000L; c.remotePacket("sensor", "watch", 10) }
+        f.time += RecoveryPolicy.MONITOR_GRACE_MS
         c.tick()
         assertTrue(f.phoneRunning)
     }
     @Test fun `healthy watch continues even when phone stops receiving relay`() = runTest {
         val f = Fake().apply { health = ReceiverHealth(true, true, 2_000L, true) }
         val c = monitoring(f)
-        f.time += RecoveryPolicy.SILENCE_MS
+        f.time += RecoveryPolicy.MONITOR_DEADLINE_MS
         c.tick()
         assertFalse(f.phoneRunning)
         assertFalse(f.trace.contains("release"))
+        assertEquals(RecoveryPolicy.monitorDelayMs(2_000L), c.nextCheckMs())
     }
     @Test fun `automatic disabled leaves watch alone while explicit manual takeover still works`() = runTest {
         val f = Fake().apply { releaseAck = false }
@@ -238,9 +240,72 @@ class ReceiverRecoveryTest {
     @Test fun `watch recovering within its grace period is not interrupted`() = runTest {
         val f = Fake().apply { health = ReceiverHealth(true, false, canStart = true, claiming = true, claimRemainingMs = 90_000L) }
         val c = monitoring(f)
-        f.time += RecoveryPolicy.SILENCE_MS; c.tick()
+        f.time += RecoveryPolicy.MONITOR_DEADLINE_MS; c.tick()
         assertFalse(f.phoneRunning)
         assertEquals(90_000L, c.nextCheckMs())
+    }
+    @Test fun `silence check waits past the minute grid for a watch reconnecting at the boundary`() = runTest {
+        // Field 2026-11-07: readings and reconnect advertisements share one second of every minute,
+        // so the watch re-linked exactly SILENCE_MS after its last relayed reading.
+        val f = Fake()
+        val c = monitoring(f)
+        c.remotePacket("sensor", "watch", 1)
+        assertEquals(RecoveryPolicy.MONITOR_DEADLINE_MS, c.nextCheckMs())
+        f.time += RecoveryPolicy.SILENCE_MS
+        f.health = ReceiverHealth(reachable = true, canStart = true) // linked, first reading not yet in
+        c.tick()
+        assertFalse(f.trace.contains("release"))
+        f.time += RecoveryPolicy.MONITOR_GRACE_MS
+        f.health = ReceiverHealth(true, true, 17_000L, true) // its first new reading has arrived
+        c.tick()
+        assertFalse(f.trace.contains("release"))
+        assertFalse(f.phoneRunning)
+        assertEquals(RecoveryPhase.WATCH_MONITOR, c.state!!.phase)
+        assertEquals(RecoveryPolicy.monitorDelayMs(17_000L), c.nextCheckMs())
+    }
+    @Test fun `watch refusing release while finishing its own reconnect keeps the phone off`() = runTest {
+        val f = Fake().apply {
+            releaseWorks = false
+            health = ReceiverHealth(reachable = true, canStart = true, claiming = true, claimRemainingMs = 30_000L)
+        }
+        val c = monitoring(f)
+        assertFalse(c.requestPhone("sensor", "watch"))
+        assertTrue(f.trace.contains("release"))
+        assertFalse(f.trace.contains("startPhone"))
+        assertFalse(f.phoneRunning)
+        assertEquals(RecoveryPhase.WATCH_MONITOR, c.state!!.phase)
+        assertEquals(30_000L, c.nextCheckMs())
+    }
+    @Test fun `a released watch start claim does not block the phone`() = runTest {
+        // A watch asking for help during its start window still claims until it accepts the release.
+        val f = Fake().apply { health = ReceiverHealth(reachable = true, canStart = true, claiming = true, claimRemainingMs = 100_000L) }
+        val c = monitoring(f)
+        assertTrue(c.requestPhone("sensor", "watch"))
+        assertTrue(f.phoneRunning)
+        assertEquals(RecoveryPhase.PHONE_CONNECTING, c.state!!.phase)
+    }
+    @Test fun `restart during release keeps a watch that is finishing its own reconnect`() = runTest {
+        val f = Fake().apply {
+            releaseWorks = false
+            health = ReceiverHealth(reachable = true, canStart = true, claiming = true, claimRemainingMs = 40_000L)
+        }
+        val saved = RecoveryState("sensor", "watch", RecoveryPhase.RELEASING_WATCH, "old", 8, deadlineMs = f.time)
+        val c = PhoneRecoveryCoordinator(f, saved)
+        c.configure(true); c.tick()
+        assertFalse(f.phoneRunning)
+        assertEquals(RecoveryPhase.WATCH_MONITOR, c.state!!.phase)
+        assertEquals(40_000L, c.nextCheckMs())
+    }
+    @Test fun `only a freshly re-established watch link claims and never for long`() {
+        val claim = RecoveryPolicy.RECONNECT_CLAIM_MS
+        val silent = RecoveryPolicy.SILENCE_MS
+        assertEquals(claim, RecoveryPolicy.reconnectClaimMs(false, 0L, silent))
+        assertEquals(claim - 2_000L, RecoveryPolicy.reconnectClaimMs(false, 2_000L, silent))
+        assertEquals(0L, RecoveryPolicy.reconnectClaimMs(false, claim, silent))
+        assertEquals(0L, RecoveryPolicy.reconnectClaimMs(false, null, silent))
+        assertEquals(0L, RecoveryPolicy.reconnectClaimMs(true, 2_000L, 1_000L))
+        assertEquals(0L, RecoveryPolicy.reconnectClaimMs(false, 2_000L, RecoveryPolicy.RECONNECT_CLAIM_MAX_SILENCE_MS))
+        assertEquals(0L, RecoveryPolicy.reconnectClaimMs(false, 2_000L, Long.MAX_VALUE))
     }
     @Test fun `restart during release eventually launches phone without requiring the watch`() = runTest {
         val f = Fake()
@@ -301,16 +366,9 @@ class ReceiverRecoveryTest {
         assertTrue(RecoveryPolicy.canStartWatch(6, true))
         assertFalse(RecoveryPolicy.canStartWatch(0, true))
     }
-    @Test fun `only the first three automatic controller failures have a deadline`() {
-        for (failed in 0..2) assertEquals(20_000L, RecoveryPolicy.controllerConnectTimeout(true, true, failed, true, 20_000L))
-        for (failed in 3..100) assertNull(RecoveryPolicy.controllerConnectTimeout(true, true, failed, true, 20_000L))
-        assertNull(RecoveryPolicy.controllerConnectTimeout(false, true, 0, true, 20_000L))
-        assertNull(RecoveryPolicy.controllerConnectTimeout(true, false, 0, true, 20_000L))
-        assertEquals(20_000L, RecoveryPolicy.controllerConnectTimeout(true, true, 9, false, 20_000L))
-    }
     @Test fun `clock changes after restart cannot create an unlimited ownership claim`() {
         assertEquals(50L, RecoveryPolicy.restoreDeadline(1, 1000, 50))
-        assertEquals(50 + RecoveryPolicy.SILENCE_MS, RecoveryPolicy.restoreDeadline(Long.MAX_VALUE, 0, 50))
+        assertEquals(50 + RecoveryPolicy.MONITOR_DEADLINE_MS, RecoveryPolicy.restoreDeadline(Long.MAX_VALUE, 0, 50))
     }
     @Test fun `control sequence survives a restart with no active automatic cycle`() = runTest {
         val f = Fake()

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="complication_date_weather">Date et météo</string>
+    <string name="complication_date_weather_high_contrast">Date et météo (contraste élevé)</string>
+    <string name="weather_configure_on_phone">Configurez la météo dans LibreCR sur le téléphone, dans Paramètres → Wear OS.</string>
+    <string name="weather_done">Terminé</string>
+    <string name="weather_description">^1, %1$s, %2$s</string>
+    <string name="weather_stale_description">^1, dernière température disponible %1$s, %2$s</string>
+    <string name="weather_unavailable_description">^1, météo indisponible</string>
+    <string name="weather_clear">Ciel dégagé</string>
+    <string name="weather_partly_cloudy">Partiellement nuageux</string>
+    <string name="weather_overcast">Couvert</string>
+    <string name="weather_fog">Brouillard</string>
+    <string name="weather_rain">Pluie</string>
+    <string name="weather_snow">Neige</string>
+    <string name="weather_storm">Orage</string>
+    <string name="weather_unknown">Conditions inconnues</string>
+</resources>

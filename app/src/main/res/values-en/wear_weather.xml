@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wear_weather_title">Weather on watch</string>
+    <string name="wear_weather_explanation">Your phone fetches weather from Open-Meteo and syncs it to LibreCR Wear.</string>
+    <string name="wear_weather_phone_location">Phone location</string>
+    <string name="wear_weather_use_location">Use phone location</string>
+    <string name="wear_weather_refresh">Refresh now</string>
+    <string name="wear_weather_disable">Stop syncing</string>
+    <string name="wear_weather_background">To follow your location while the app is closed, select “Allow all the time” in location settings. Until then, weather updates for the last known position.</string>
+    <string name="wear_weather_permissions">Location permissions</string>
+    <string name="wear_weather_city">City</string>
+    <string name="wear_weather_search">Search</string>
+    <string name="wear_weather_working">Updating…</string>
+    <string name="wear_weather_syncing">Weather sent for syncing.</string>
+    <string name="wear_weather_pending">Update failed. Check the phone’s internet connection and location settings.</string>
+    <string name="wear_weather_location_denied">Allow approximate location or search for a city.</string>
+    <string name="wear_weather_no_city">No cities found.</string>
+</resources>

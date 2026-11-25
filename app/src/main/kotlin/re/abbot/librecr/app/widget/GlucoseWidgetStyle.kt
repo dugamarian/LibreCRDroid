@@ -103,17 +103,19 @@ internal object WidgetFonts {
 /** Outer surface: the launcher's own corner radius on Android 12+, a rounded drawable before. */
 internal fun GlanceModifier.widgetSurface(): GlanceModifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        background(WidgetColors.surface).cornerRadius(android.R.dimen.system_app_widget_background_radius)
+        background(ColorProvider(R.color.glucose_widget_surface_translucent))
+            .cornerRadius(android.R.dimen.system_app_widget_background_radius)
     } else {
-        shapeBackground(R.drawable.glucose_widget_surface_fallback, WidgetColors.surface)
+        background(ImageProvider(R.drawable.glucose_widget_preview_background))
     }
 
 /** Inner card, concentric with the outer surface through the system inner radius. */
-internal fun GlanceModifier.widgetTile(color: ColorProvider): GlanceModifier =
+internal fun GlanceModifier.widgetTile(): GlanceModifier =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        background(color).cornerRadius(android.R.dimen.system_app_widget_inner_radius)
+        background(ColorProvider(R.color.glucose_widget_tile_translucent))
+            .cornerRadius(android.R.dimen.system_app_widget_inner_radius)
     } else {
-        shapeBackground(R.drawable.glucose_widget_tile_fallback, color)
+        background(ImageProvider(R.drawable.glucose_widget_preview_tile))
     }
 
 /** Any tinted shape drawable as background; works on every API level, unlike outline clipping. */

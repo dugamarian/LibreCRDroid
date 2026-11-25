@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.alarm.GlucoseAlarmManager
 import re.abbot.librecr.app.ble.SensorConnectionManager
+import re.abbot.librecr.app.broadcast.GlucoseBroadcast
 import re.abbot.librecr.app.data.GlucoseHistoryStore
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.SettingsStore
@@ -171,6 +172,7 @@ object LibreCR {
         }
         initialized = true
         GlucoseWidgetUpdater.start(app)
+        GlucoseBroadcast.start(app)
         AndroidAutoGlucoseNotifications.start(app)
     }
 

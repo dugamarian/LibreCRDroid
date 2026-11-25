@@ -47,4 +47,16 @@ class GlucoseComplicationFreshnessTest {
     fun `a sensor packet with no usable glucose is rendered as NA`() {
         assertEquals("NA", GlucoseComplicationRenderer.valueText(null, valueUnavailable = true))
     }
+
+    @Test
+    fun `age complication shows minutes inside the display window and the clock time after`() {
+        val at = 1_000_000L
+        assertEquals("<1 m.", GlucoseComplicationRenderer.ageText(at, at + 10_000L))
+        assertEquals("2 m.", GlucoseComplicationRenderer.ageText(at, at + 125_000L))
+        assertEquals("5 m.", GlucoseComplicationRenderer.ageText(at, at + 329_999L))
+        // An expired sample needs no further repaint, so it shows its clock time again.
+        val expired = SensorStateStore.LastGlucose(123, 101, "STABLE", at, 0.0)
+        assertEquals(GlucoseComplicationRenderer.timeText(expired), GlucoseComplicationRenderer.ageText(at, at + 330_000L))
+        assertEquals("--:--", GlucoseComplicationRenderer.ageText(0L, at))
+    }
 }

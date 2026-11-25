@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Before Android 12 RemoteViews cannot clip to an outline, so the rounding lives in the drawable. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#FFFFFFFF" />
-    <corners android:radius="24dp" />
-</shape>

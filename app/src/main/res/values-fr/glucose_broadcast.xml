@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="broadcast_title">Diffusion de la glycémie</string>
+    <string name="broadcast_subtitle">Partager la glycémie avec d’autres applications</string>
+    <string name="broadcast_enable">Diffuser la glycémie vers d’autres applications</string>
+    <string name="broadcast_description">Transmet localement la glycémie, l’horodatage original, la tendance et le delta par minute au format xDrip. Fonctionne avec les mesures du téléphone et celles relayées par la montre. Seules les mesures valides de moins de 6 minutes sont envoyées.</string>
+    <string name="broadcast_sharing">Désactivé par défaut. Une fois activé, les applications compatibles peuvent recevoir vos données de glycémie. Sans destinataires spécifiés, toute application à l’écoute de cette diffusion peut les recevoir.</string>
+    <string name="broadcast_destinations_title">Applications destinataires</string>
+    <string name="broadcast_packages">Noms de paquets (facultatif)</string>
+    <string name="broadcast_packages_hint">Exemple : com.example.glucose. Séparez les paquets par des espaces ou des virgules.</string>
+    <string name="broadcast_packages_error">Saisissez des noms de paquets valides, par exemple com.example.glucose.</string>
+    <string name="broadcast_save">Enregistrer les destinataires</string>
+    <string name="broadcast_destinations_help">Laissez vide pour toutes les applications compatibles. Si l’application destinataire ne reçoit pas les données en arrière-plan, saisissez son nom de paquet et enregistrez. Les changements sont immédiats ; la dernière mesure valide est renvoyée avec son horodatage original.</string>
+    <string name="broadcast_setup_title">Configuration de l’application destinataire</string>
+    <string name="broadcast_setup">Activez la réception des diffusions xDrip dans l’application qui affichera la glycémie. La valeur transmise est toujours en mg/dL ; l’application destinataire peut afficher des mmol/L. L’horodatage est conservé pour calculer l’âge de la mesure. Si les données cessent d’arriver, l’application destinataire doit indiquer que la mesure est ancienne.</string>
+</resources>

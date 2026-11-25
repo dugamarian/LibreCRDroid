@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -104,21 +105,31 @@ fun TrendArrow(
 ) {
     Canvas(modifier.size(size)) {
         val rotation = TrendArrowShape.rotationDegrees(trend) ?: return@Canvas
-        val side = this.size.minDimension
-        val stroke = side * TrendArrowShape.STROKE_FRACTION
-        withTransform({
-            scale(TrendArrowShape.SCALE, TrendArrowShape.SCALE)
-            rotate(rotation)
-        }) {
-            TrendArrowShape.SEGMENTS.forEach { s ->
-                drawLine(
-                    color = color,
-                    start = Offset(s.x0 * side, s.y0 * side),
-                    end = Offset(s.x1 * side, s.y1 * side),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round,
-                )
-            }
+        drawTrendArrow(rotation, color)
+    }
+}
+
+/**
+ * Draws the shared [TrendArrowShape] glyph into this (square) draw area at an arbitrary rotation,
+ * so a surface can animate between trends while keeping the exact same arrow. [strokeWidth] (px,
+ * as drawn) lets a surface match the weight of the numerals beside it; the geometry is unchanged.
+ */
+fun DrawScope.drawTrendArrow(rotationDegrees: Float, color: Color, strokeWidth: Float? = null) {
+    val side = size.minDimension
+    // The stroke is drawn inside the SCALE transform, so undo it for an explicit width.
+    val stroke = strokeWidth?.div(TrendArrowShape.SCALE) ?: (side * TrendArrowShape.STROKE_FRACTION)
+    withTransform({
+        scale(TrendArrowShape.SCALE, TrendArrowShape.SCALE)
+        rotate(rotationDegrees)
+    }) {
+        TrendArrowShape.SEGMENTS.forEach { s ->
+            drawLine(
+                color = color,
+                start = Offset(s.x0 * side, s.y0 * side),
+                end = Offset(s.x1 * side, s.y1 * side),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
         }
     }
 }

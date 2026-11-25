@@ -64,6 +64,7 @@ import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
 import re.abbot.librecr.app.ble.toLastGlucose
 import re.abbot.librecr.app.service.SensorForegroundService
+import re.abbot.librecr.app.wear.AutomaticSensorHandoff
 import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
 import re.abbot.librecr.protocol.TrendArrowShape
 import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
@@ -76,6 +77,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         LibreCR.init(this)
+        AutomaticSensorHandoff.onAppVisible()
         resumeOwnedSensorConnection()
         LibreComplicationUpdater.requestAll(this)
         setContent {
@@ -159,7 +161,10 @@ private fun WearScreen() {
     var burnInFrameIndex by remember { mutableStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { WearLiveUpdatesNotifier.refresh(context) }
+    ) {
+        WearLiveUpdatesNotifier.refresh(context)
+        AutomaticSensorHandoff.onAppVisible()
+    }
 
     // End of the interactive in-memory path: Compose now holds the new value and is about to
     // recompose. This deliberately does not wait for STORE_UPDATED and can be logged before it.

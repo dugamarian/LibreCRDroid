@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="complication_date_weather">Dată și vreme</string>
+    <string name="complication_date_weather_high_contrast">Dată și vreme (contrast ridicat)</string>
+    <string name="weather_configure_on_phone">Configurează vremea în LibreCR pe telefon, la Setări → Wear OS.</string>
+    <string name="weather_done">Gata</string>
+    <string name="weather_description">^1, %1$s, %2$s</string>
+    <string name="weather_stale_description">^1, ultima temperatură disponibilă %1$s, %2$s</string>
+    <string name="weather_unavailable_description">^1, vreme indisponibilă</string>
+    <string name="weather_clear">Cer senin</string>
+    <string name="weather_partly_cloudy">Parțial noros</string>
+    <string name="weather_overcast">Înnorat</string>
+    <string name="weather_fog">Ceață</string>
+    <string name="weather_rain">Ploaie</string>
+    <string name="weather_snow">Ninsoare</string>
+    <string name="weather_storm">Furtună</string>
+    <string name="weather_unknown">Condiții necunoscute</string>
+</resources>

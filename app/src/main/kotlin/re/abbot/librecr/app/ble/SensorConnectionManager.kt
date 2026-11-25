@@ -202,6 +202,8 @@ class SensorConnectionManager(
         (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
     }
 
+    val isRunning: Boolean get() = loopJob?.isActive == true
+
     fun start(
         scope: CoroutineScope,
         session: ImportedSession,
@@ -297,6 +299,10 @@ class SensorConnectionManager(
         }
         sensorOnline = false
         AutomaticSensorHandoff.onConnectionInterrupted()
+        // Deliberate stop(), cleanup, decode failures and watchdogs do not emit this hint.
+        if (reason == "gatt_disconnect") {
+            activeSession?.let { AutomaticSensorHandoff.onSensorLinkLost(it.bleAddress, status) }
+        }
         pendingReconnectReason = reason
         lastDisconnectStatus = status
         reconnectLastGoodLifeCount = lastSentReading?.lifeCount ?: lifeCountTracker.lastContiguousLifeCount

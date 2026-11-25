@@ -97,6 +97,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
 
     // Material 3 Expressive ships in material3 1.4.0 (pinned by this BOM).

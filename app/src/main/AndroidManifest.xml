@@ -10,6 +10,9 @@
     <!-- Location was required for BLE scan before Android 12. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- BLE: Android 12+ runtime permissions. We connect to a known sensor and
          do not derive location from BLE, so neverForLocation. -->
@@ -34,6 +37,8 @@
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
 
     <queries>
         <package android:name="me.hufman.androidautoidrive" />
@@ -114,6 +119,11 @@
                 <data android:host="*" android:pathPrefix="/librecr" android:scheme="wear" />
             </intent-filter>
         </service>
+
+        <service
+            android:name=".wear.weather.PhoneWeatherJob"
+            android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <receiver android:name=".service.ReceiverRecoveryAlarm$Receiver" android:exported="false" />
 

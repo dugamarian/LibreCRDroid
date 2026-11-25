@@ -9,6 +9,9 @@ import re.abbot.librecr.app.WEAR_GLUCOSE_DISPLAY_HOLD_MS
 import re.abbot.librecr.app.ble.GlucoseUi
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 class WearLiveUpdateContentTest {
     private val receivedAt = 1_000_000L
@@ -28,14 +31,14 @@ class WearLiveUpdateContentTest {
         val result = content(live = live, nowMs = live.receivedAtMs)
         assertEquals(126, result.reading?.mgDL)
         assertEquals("↘ 126 Δ -3", result.primaryText)
-        assertEquals("126  ·  -3 · 0′", result.chipText(live.receivedAtMs))
+        assertEquals("126  ·  -3 · <1 m.", result.chipText(live.receivedAtMs))
     }
 
     @Test
     fun `phone relayed persisted reading has the same display and elapsed minute age`() {
         val result = content(nowMs = receivedAt + 125_000L)
         assertEquals("↗ 120 Δ +2", result.primaryText)
-        assertEquals(2L, result.ageMinutes(receivedAt + 125_000L))
+        assertEquals("2 m.", result.ageLabel(receivedAt + 125_000L))
         assertEquals(55_000L, result.nextRefreshDelayMs(receivedAt + 125_000L))
     }
 
@@ -63,8 +66,8 @@ class WearLiveUpdateContentTest {
         assertEquals("NA", result.primaryText)
         assertTrue(result.hasFreshObservation)
         assertEquals(unavailable.receivedAtMs, result.observedAtMs)
-        assertEquals("NA · 0′", result.chipText(unavailable.receivedAtMs))
-        assertEquals("NA · 2′", result.chipText(unavailable.receivedAtMs + 125_000L))
+        assertEquals("NA · <1 m.", result.chipText(unavailable.receivedAtMs))
+        assertEquals(2L, result.ageMinutes(unavailable.receivedAtMs + 125_000L))
         assertEquals(55_000L, result.nextRefreshDelayMs(unavailable.receivedAtMs + 125_000L))
     }
 
@@ -77,7 +80,7 @@ class WearLiveUpdateContentTest {
         val expired = content(live = unavailable, nowMs = receivedAt + WEAR_GLUCOSE_DISPLAY_HOLD_MS)
         assertNull(expired.reading)
         assertFalse(expired.hasFreshObservation)
-        assertEquals("--", expired.chipText(receivedAt + WEAR_GLUCOSE_DISPLAY_HOLD_MS))
+        assertNull(expired.chipText(receivedAt + WEAR_GLUCOSE_DISPLAY_HOLD_MS))
         assertNull(expired.nextRefreshDelayMs(receivedAt + WEAR_GLUCOSE_DISPLAY_HOLD_MS))
     }
 
@@ -98,11 +101,13 @@ class WearLiveUpdateContentTest {
     fun `a new NA resets elapsed minutes and a usable packet restores numeric display`() {
         val unavailable = GlucoseUi(null, "UNKNOWN", 101, false, receivedAt + 120_000L)
         val result = content(live = unavailable, nowMs = unavailable.receivedAtMs)
-        assertEquals("NA · 0′", result.chipText(unavailable.receivedAtMs))
+        assertEquals("NA · <1 m.", result.chipText(unavailable.receivedAtMs))
+        assertEquals(unavailable.receivedAtMs, result.observedAtMs)
         val recovered = content(live = unavailable.copy(mgDL = 126, usable = true,
             receivedAtMs = receivedAt + 180_000L), nowMs = receivedAt + 180_000L)
         assertEquals(WearLiveUpdateContent.Status.READING, recovered.status)
         assertEquals("126", recovered.value)
+        assertEquals("126  ·  -- · <1 m.", recovered.chipText(receivedAt + 180_000L))
     }
 
     @Test
@@ -116,12 +121,12 @@ class WearLiveUpdateContentTest {
     }
 
     @Test
-    fun `mmol conversion keeps value delta and elapsed minutes in the chip`() {
+    fun `mmol conversion keeps value delta and minutes in the chip`() {
         val result = content(reading = persisted.copy(mgDL = 108, deltaMgDlPerMin = 3.6), unit = GlucoseUnit.MMOL_L)
         assertEquals("6.0", result.value)
         assertEquals("+0.2", result.delta)
-        assertEquals("6.0  ·  +0.2 · 0′", result.chipText(receivedAt))
-        assertEquals("6.0  ·  +0.2 · 2′", result.chipText(receivedAt + 125_000L))
+        assertEquals("6.0  ·  +0.2 · <1 m.", result.chipText(receivedAt))
+        assertEquals("6.0  ·  +0.2 · 2 m.", result.chipText(receivedAt + 125_000L))
     }
 
     @Test
@@ -138,18 +143,44 @@ class WearLiveUpdateContentTest {
     fun `missing timestamp is never shown and clock skew cannot make a negative age`() {
         assertNull(content(reading = persisted.copy(receivedAtMs = 0L)).reading)
         assertNull(content(reading = null).nextRefreshDelayMs(receivedAt))
-        assertEquals(0L, content().ageMinutes(receivedAt - 10_000L))
+        assertEquals("<1 m.", content().ageLabel(receivedAt - 10_000L))
+        assertEquals(70_000L, content().nextRefreshDelayMs(receivedAt - 10_000L))
     }
 
     @Test
-    fun `chip age increments at the minute boundary and resets on a new reading`() {
+    fun `chip minutes advance with elapsed time and a newer sample resets them`() {
         val result = content()
-        assertEquals("120  ·  +2 · 0′", result.chipText(receivedAt + 59_999L))
-        assertEquals("120  ·  +2 · 1′", result.chipText(receivedAt + 60_000L))
-        assertEquals("120  ·  +2 · 2′", result.chipText(receivedAt + 120_000L))
+        assertEquals("120  ·  +2 · <1 m.", result.chipText(receivedAt + 59_999L))
+        assertEquals("120  ·  +2 · 1 m.", result.chipText(receivedAt + 60_000L))
+        assertEquals("120  ·  +2 · 5 m.", result.chipText(receivedAt + 329_999L))
         val newer = content(reading = persisted.copy(receivedAtMs = receivedAt + 120_000L),
             nowMs = receivedAt + 125_000L)
-        assertEquals("120  ·  +2 · 0′", newer.chipText(receivedAt + 125_000L))
-        assertEquals("--", content(reading = null).chipText(receivedAt))
+        assertEquals("120  ·  +2 · <1 m.", newer.chipText(receivedAt + 125_000L))
+        assertNull(content(reading = null).chipText(receivedAt))
+    }
+
+    @Test
+    fun `age wake-ups come 10 s after the first minute then on each minute until expiry`() {
+        val c = content()
+        // A reading that lands up to 10 s late replaces "<1 m." before any wake-up is due.
+        assertEquals(70_000L, c.nextAgeLabelDelayMs(receivedAt))
+        assertEquals(5_000L, c.nextAgeLabelDelayMs(receivedAt + 65_000L))
+        assertEquals(50_000L, c.nextAgeLabelDelayMs(receivedAt + 70_000L))
+        val wakeUps = generateSequence(receivedAt) { t -> c.nextAgeLabelDelayMs(t)?.let { t + it } }
+            .drop(1).map { it - receivedAt }.toList()
+        assertEquals(listOf(70_000L, 120_000L, 180_000L, 240_000L, 300_000L), wakeUps)
+        // The foreground card has no OS timeout, so it also needs the expiry repost.
+        assertNull(c.nextAgeLabelDelayMs(receivedAt + 300_000L))
+        assertEquals(30_000L, c.nextRefreshDelayMs(receivedAt + 300_000L))
+        assertEquals(WEAR_GLUCOSE_DISPLAY_HOLD_MS - 10_000L, c.nextRefreshDelayMs(receivedAt + 10_000L, showAge = false))
+    }
+
+    @Test
+    fun `observation clock uses the sample timestamp in the watch time zone`() {
+        val observed = Instant.parse("2026-11-08T08:05:00Z").toEpochMilli()
+        val result = content(reading = persisted.copy(receivedAtMs = observed), nowMs = observed + 125_000L)
+        assertEquals("08:05", result.observationTime(ZoneOffset.UTC))
+        assertEquals("09:05", result.observationTime(ZoneId.of("Europe/Brussels")))
+        assertEquals(observed, result.observedAtMs)
     }
 }

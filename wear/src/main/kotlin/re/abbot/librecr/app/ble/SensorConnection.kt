@@ -87,7 +87,14 @@ class SensorConnection(
     val connectionGenerationId: Long,
     private val isConnectionGenerationCurrent: (Long) -> Boolean,
 ) {
-    @Volatile var onDisconnected: ((status: Int) -> Unit)? = null
+    /**
+     * [linkWasEstablished] tells the loss of a link which had come up apart from a connect attempt
+     * that never completed; the GATT status alone no longer does (see [isLinkSupervisionTimeout]).
+     */
+    @Volatile var onDisconnected: ((status: Int, linkWasEstablished: Boolean) -> Unit)? = null
+
+    /** Runs on the GATT callback thread the instant the link comes up, before any coroutine resumes. */
+    @Volatile private var onLinkUp: (() -> Unit)? = null
 
     @Volatile private var gatt: BluetoothGatt? = null
     @Volatile private var closed = false
@@ -133,6 +140,14 @@ class SensorConnection(
     val isConnected: Boolean get() = connected && gatt != null && !closed
     val deviceAddress: String get() = device.address
 
+    /** Milliseconds since this GATT reached STATE_CONNECTED, or null while no link is up. */
+    fun linkAgeMs(): Long? =
+        if (isConnected && connectedAtElapsedMs > 0L) {
+            (SystemClock.elapsedRealtime() - connectedAtElapsedMs).coerceAtLeast(0L)
+        } else {
+            null
+        }
+
     fun notifyChannel(uuid: UUID): Channel<ByteArray> =
         notifyChannels.getOrPut(uuid) { Channel(Channel.UNLIMITED) }
 
@@ -144,10 +159,10 @@ class SensorConnection(
         connectTimeoutMs: Long?,
         discoverTimeoutMs: Long,
         autoConnect: Boolean = false,
-        onConnected: (() -> Unit)? = null,
+        onLinkUp: (() -> Unit)? = null,
     ) {
+        this.onLinkUp = onLinkUp
         connect(connectTimeoutMs, autoConnect)
-        onConnected?.invoke()
 
         // NO connection-priority requests for Libre 3. Every preset hurt: HIGH and BALANCED caused
         // random status=8 link drops, LOW_POWER made the multi-round-trip handshake too slow, and any
@@ -159,21 +174,11 @@ class SensorConnection(
     }
 
     /**
-     * One and only fast recovery attempt on the still-owned GATT after status=8. This deliberately
-     * calls [BluetoothGatt.connect] rather than creating another GATT, and the caller supplies the
-     * hard 8-second STATE_CONNECTED watchdog. Service discovery and the cached handshake remain
-     * serialized behind the same [opMutex] after the link is back.
+     * Fails a connect which is still waiting for the link. A Bluetooth restart forgets every GATT
+     * client without a callback, so a controller connect issued before it would wait forever.
      */
-    suspend fun reconnectAndDiscoverExisting(connectTimeoutMs: Long, discoverTimeoutMs: Long) {
-        // Drop every queue owned by the old data-plane session before the cached handshake creates
-        // fresh crypto and collectors. This prevents a pre-drop 177a fragment from reaching them.
-        notifyChannels.values.forEach { it.close() }
-        notifyChannels.clear()
-        characteristics.clear()
-        reconnectExistingGatt(connectTimeoutMs)
-        discoverServices(discoverTimeoutMs)
-        subscribeNotifyCharacteristics(LibreSensorGatt.handshakeNotifying, "handshake")
-    }
+    fun abortPendingConnect(reason: String): Boolean =
+        pendingConnect?.completeExceptionally(IllegalStateException(reason)) == true
 
     private suspend fun connect(timeoutMs: Long?, autoConnect: Boolean) = opMutex.withLock {
         val operation = "connect(auto=$autoConnect)"
@@ -222,52 +227,6 @@ class SensorConnection(
             if (pendingConnect === def) pendingConnect = null
         }
         BleLog.log("gatt.connect: connected")
-    }
-
-    private suspend fun reconnectExistingGatt(timeoutMs: Long) = opMutex.withLock {
-        val g = gatt ?: throw IllegalStateException("old GATT unavailable for fast reconnect")
-        if (!isConnectionGenerationCurrent(connectionGenerationId)) {
-            throw IllegalStateException("connection generation $connectionGenerationId is stale")
-        }
-        val operation = "gatt.connect(reuse)"
-        beginOperation(operation)
-        val def = CompletableDeferred<Unit>()
-        pendingConnect = def
-        closed = false
-        connected = false
-        BleLog.log(
-            "$WEAR_BLE_TAG SENSOR_GATT_CONNECT_RETRY_START generation=$connectionGenerationId " +
-                "device=${device.address} watchdogMs=$timeoutMs",
-        )
-        try {
-            ensureStarted("BluetoothGatt.connect", g.connect())
-            withTimeout(timeoutMs) { def.await() }
-            finishOperation(operation, "ok")
-            BleLog.log(
-                "$WEAR_BLE_TAG SENSOR_GATT_CONNECT_RETRY_SUCCESS generation=$connectionGenerationId " +
-                    "device=${device.address}",
-            )
-        } catch (e: TimeoutCancellationException) {
-            finishOperation(operation, "watchdog_${timeoutMs}ms")
-            BleLog.log(
-                "$WEAR_BLE_TAG SENSOR_GATT_CONNECT_WATCHDOG_EXPIRED generation=$connectionGenerationId " +
-                    "device=${device.address} timeoutMs=$timeoutMs",
-            )
-            BleLog.log(
-                "$WEAR_BLE_TAG SENSOR_GATT_CONNECT_RETRY_FAILED generation=$connectionGenerationId " +
-                    "reason=watchdog_timeout",
-            )
-            throw e
-        } catch (e: Exception) {
-            finishOperation(operation, "failed:${diagnosticToken(e.message)}")
-            BleLog.log(
-                "$WEAR_BLE_TAG SENSOR_GATT_CONNECT_RETRY_FAILED generation=$connectionGenerationId " +
-                    "reason=${diagnosticToken(e.message)}",
-            )
-            throw e
-        } finally {
-            if (pendingConnect === def) pendingConnect = null
-        }
     }
 
     private suspend fun discoverServices(timeoutMs: Long) = opMutex.withLock {
@@ -438,9 +397,9 @@ class SensorConnection(
     /**
      * Enables the complete post-Phase 6 data-plane CCCD set in protocol order.
      *
-     * A fresh Android GATT only needs the seven enables. A retained GATT, or a
-     * PATCH_CONTROL 0xFD recovery, needs a real off→on edge to make the sensor
-     * observe the new session. Android GATT operations remain serialized.
+     * A fresh Android GATT only needs the seven enables. A PATCH_CONTROL 0xFD
+     * recovery needs a real off→on edge to make the sensor observe the new
+     * session. Android GATT operations remain serialized.
      */
     suspend fun refreshDataPlaneNotifications(forceRearm: Boolean = false) {
         val startedAtMs = System.currentTimeMillis()
@@ -573,6 +532,7 @@ class SensorConnection(
         closed = true
         connected = false
         onDisconnected = null
+        onLinkUp = null
         val closingGatt = gatt
         gatt = null
         characteristics.clear()
@@ -603,34 +563,26 @@ class SensorConnection(
                 BleLog.log(
                     "$WEAR_BLE_TAG SENSOR_STATE_CONNECTED generation=$connectionGenerationId status=$status",
                 )
+                // The controller may have woken the watch for this callback alone; the owner takes
+                // its wake lock here, before the coroutine waiting on pendingConnect is scheduled.
+                onLinkUp?.invoke()
                 pendingConnect?.complete(Unit); pendingConnect = null
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
+                val linkWasEstablished = connectedAtElapsedMs > 0L
                 connected = false
                 BleLog.log(
-                    "$WEAR_BLE_TAG SENSOR_STATE_DISCONNECTED generation=$connectionGenerationId status=$status",
-                )
-                failAllPending(GattDisconnectedException(status))
-                val cb = onDisconnected
-                // status=8 is the sole case where the manager gets one BluetoothGatt.connect()
-                // recovery attempt. Keep this exact GATT alive until that watchdog succeeds or the
-                // manager invalidates the generation and closes it before scanning.
-                if (status != GATT_CONNECTION_TIMEOUT_STATUS) {
-                    closed = true
-                    runCatching { g.close() }
-                    if (gatt === g) gatt = null
-                }
-                cb?.invoke(status)
-            } else if (status != BluetoothGatt.GATT_SUCCESS) {
-                connected = false
-                BleLog.log(
-                    "$WEAR_BLE_TAG SENSOR_STATE_DISCONNECTED generation=$connectionGenerationId status=$status",
+                    "$WEAR_BLE_TAG SENSOR_STATE_DISCONNECTED generation=$connectionGenerationId status=$status " +
+                        "established=$linkWasEstablished",
                 )
                 closed = true
                 failAllPending(GattDisconnectedException(status))
-                val cb = onDisconnected
+                // The owner first: it takes its wake lock in this callback, which may be all that
+                // keeps the watch awake, before the binder round trip of close() below.
+                onDisconnected?.invoke(status, linkWasEstablished)
+                // Every loss ends this GATT: recovery belongs to a fresh controller connect, which
+                // keeps listening through Doze, never to a retry on the old client.
                 runCatching { g.close() }
-                gatt = null
-                cb?.invoke(status)
+                if (gatt === g) gatt = null
             }
         }
 
@@ -838,7 +790,6 @@ class SensorConnection(
         private const val RSSI_TIMEOUT_MS = 4_000L
 
         private const val WEAR_BLE_TAG = "[WEAR-BLE]"
-        private const val GATT_CONNECTION_TIMEOUT_STATUS = 8
         private const val BLUETOOTH_STATUS_SUCCESS = 0
         private val nextSessionId = AtomicLong(1L)
     }

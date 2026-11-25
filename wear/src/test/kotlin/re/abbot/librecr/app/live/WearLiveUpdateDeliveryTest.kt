@@ -20,6 +20,8 @@ import org.junit.Test
 import re.abbot.librecr.app.WEAR_GLUCOSE_DISPLAY_HOLD_MS
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 class WearLiveUpdateDeliveryTest {
     private val receivedAt = 1_000_000L
@@ -32,10 +34,14 @@ class WearLiveUpdateDeliveryTest {
         val modes = MutableStateFlow(initialMode)
         val values = MutableSharedFlow<WearLiveUpdateContent>(replay = 1, extraBufferCapacity = 8)
         val timer = Channel<Unit>()
+        val clockSignals = MutableSharedFlow<Unit>()
         var nowMs = initialTime
         var subscriptions = 0
         var emissions = 0
         var refreshes = 0
+        var clockSubscriptions = 0
+        var latestContent: WearLiveUpdateContent? = null
+        val postedKeys = mutableListOf<WearLiveUpdateNotificationKey>()
         val waits = mutableListOf<Long>()
 
         fun start(scope: CoroutineScope): Job = scope.launch {
@@ -44,13 +50,32 @@ class WearLiveUpdateDeliveryTest {
                 content = {
                     flow {
                         subscriptions++
-                        try { emitAll(values.onEach { emissions++ }) }
+                        try {
+                            emitAll(values.onEach {
+                                emissions++
+                                latestContent = it
+                            })
+                        }
                         finally { subscriptions-- }
                     }
                 },
-                refresh = { refreshes++ },
+                refresh = {
+                    refreshes++
+                    latestContent?.notificationKey(
+                        pinned = modes.value == WearLiveUpdateMode.LIVE,
+                        foreground = modes.value == WearLiveUpdateMode.SERVICE,
+                        nowMs = nowMs,
+                    )?.let { key -> if (postedKeys.lastOrNull() != key) postedKeys += key }
+                },
                 nowMs = { nowMs },
                 wait = { waits += it; timer.receive() },
+                refreshSignals = {
+                    flow {
+                        clockSubscriptions++
+                        try { emitAll(clockSignals) }
+                        finally { clockSubscriptions-- }
+                    }
+                },
             )
         }
     }
@@ -68,6 +93,7 @@ class WearLiveUpdateDeliveryTest {
             h.values.emit(content())
             repeat(5) { yield() }
             assertEquals(0, h.subscriptions)
+            assertEquals(0, h.clockSubscriptions)
             assertEquals(0, h.emissions)
             assertEquals(1, h.refreshes)
             assertEquals(emptyList<Long>(), h.waits)
@@ -82,7 +108,7 @@ class WearLiveUpdateDeliveryTest {
         try {
             await { h.waits.size == 1 }
             h.modes.value = WearLiveUpdateMode.HIDDEN
-            await { h.subscriptions == 0 && h.refreshes == 2 }
+            await { h.subscriptions == 0 && h.clockSubscriptions == 0 && h.refreshes == 2 }
             h.nowMs += 60_000L
             h.values.emit(content(reading.copy(lifeCount = 101, mgDL = 126, receivedAtMs = h.nowMs)))
             repeat(5) { yield() }
@@ -91,7 +117,8 @@ class WearLiveUpdateDeliveryTest {
             h.modes.value = WearLiveUpdateMode.LIVE
             await { h.refreshes == 3 && h.waits.size == 2 }
             assertEquals(1, h.subscriptions)
-            assertEquals(60_000L, h.waits.last())
+            assertEquals(70_000L, h.waits.last())
+            assertEquals(126, h.latestContent?.reading?.mgDL)
         } finally { job.cancelAndJoin() }
     }
 
@@ -144,6 +171,85 @@ class WearLiveUpdateDeliveryTest {
             c.notificationKey(false, true, receivedAt + 60_000L))
         assertNotEquals(c.notificationKey(true, true, receivedAt),
             c.notificationKey(true, true, receivedAt + 60_000L))
+        // Seconds inside the same minute never repost the chip.
+        assertEquals(c.notificationKey(true, true, receivedAt),
+            c.notificationKey(true, true, receivedAt + 59_999L))
+    }
+
+    @Test
+    fun `watch time zone change invalidates the static sample clock label`() {
+        val c = content()
+        val utc = c.notificationKey(true, false, receivedAt, ZoneOffset.UTC)
+        val brussels = c.notificationKey(true, false, receivedAt, ZoneId.of("Europe/Brussels"))
+        assertEquals("00:16", utc.observationTime)
+        assertEquals("01:16", brussels.observationTime)
+        assertNotEquals(utc, brussels)
+        assertEquals(utc.observedAtMs, brussels.observedAtMs)
+    }
+
+    @Test
+    fun `waking after sleep refreshes age without a reading or the old delay completing`() = runBlocking {
+        val h = Harness(WearLiveUpdateMode.LIVE, receivedAt + 10_000L)
+        h.values.emit(content())
+        val job = h.start(this)
+        try {
+            await { h.waits.size == 1 && h.clockSignals.subscriptionCount.value == 1 }
+            assertEquals(0L, h.postedKeys.last().ageMinutes)
+            // The first label change waits 10 s past the minute for a slightly late reading.
+            assertEquals(60_000L, h.waits.last())
+            // Wall time includes sleep, but the app's old delay has not completed.
+            h.nowMs = receivedAt + 135_000L
+            h.clockSignals.emit(Unit)
+            await { h.waits.size == 2 }
+            assertEquals(1, h.emissions)
+            assertEquals(2L, h.postedKeys.last().ageMinutes)
+            assertEquals(45_000L, h.waits.last())
+            h.nowMs = receivedAt + 180_000L
+            h.timer.send(Unit)
+            await { h.waits.size == 3 }
+            assertEquals(3L, h.postedKeys.last().ageMinutes)
+        } finally { job.cancelAndJoin() }
+    }
+
+    @Test
+    fun `clock signals in the same minute do not repost and do not duplicate subscriptions`() = runBlocking {
+        val h = Harness(WearLiveUpdateMode.LIVE, receivedAt)
+        h.values.emit(content())
+        val job = h.start(this)
+        try {
+            await { h.waits.size == 1 && h.clockSignals.subscriptionCount.value == 1 }
+            repeat(3) { index ->
+                h.nowMs += 5_000L
+                h.clockSignals.emit(Unit)
+                await { h.waits.size == index + 2 }
+            }
+            assertEquals(1, h.postedKeys.size)
+            assertEquals(1, h.subscriptions)
+            assertEquals(1, h.clockSubscriptions)
+            assertEquals(55_000L, h.waits.last())
+            val beforeHide = h.refreshes
+            h.modes.value = WearLiveUpdateMode.HIDDEN
+            await { h.subscriptions == 0 && h.clockSubscriptions == 0 && h.refreshes == beforeHide + 1 }
+            val refreshes = h.refreshes
+            h.clockSignals.emit(Unit)
+            repeat(5) { yield() }
+            assertEquals(refreshes, h.refreshes)
+        } finally { job.cancelAndJoin() }
+    }
+
+    @Test
+    fun `waking after expiry checks immediately and leaves no further delay`() = runBlocking {
+        val h = Harness(WearLiveUpdateMode.LIVE, receivedAt)
+        h.values.emit(content())
+        val job = h.start(this)
+        try {
+            await { h.waits.size == 1 && h.clockSignals.subscriptionCount.value == 1 }
+            h.nowMs = receivedAt + WEAR_GLUCOSE_DISPLAY_HOLD_MS
+            h.clockSignals.emit(Unit)
+            await { h.refreshes == 2 }
+            repeat(5) { yield() }
+            assertEquals(1, h.waits.size)
+        } finally { job.cancelAndJoin() }
     }
 
     @Test

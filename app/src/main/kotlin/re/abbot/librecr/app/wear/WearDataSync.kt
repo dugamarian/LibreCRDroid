@@ -20,6 +20,7 @@ import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.protocol.dataplane.GlucoseTimeline
 import re.abbot.librecr.protocol.connection.AutomaticHandoff
+import re.abbot.librecr.protocol.connection.PhonePriorityPolicy
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -166,6 +167,14 @@ object WearDataSync {
         putDataItem(context, PATH_GLUCOSE, payload)
     }
 
+    /** A transient wake hint, never a persisted route command or replayable DataItem. */
+    fun sendPhoneSensorLinkLost(context: Context, sensorAddress: String, lifeCount: Int, lostAtMs: Long, status: Int?) {
+        val payload = JSONObject().put("bleAddress", sensorAddress).put("lifeCount", lifeCount)
+            .put("lostAtMs", lostAtMs).put("status", status ?: -1).toString().toByteArray(Charsets.UTF_8)
+        BleLog.log("receiver recovery: PHONE_CGM_LINK_LOST sent lc=$lifeCount status=${status ?: -1}")
+        sendToNearbyNodes(context, PhonePriorityPolicy.PHONE_CGM_LINK_LOST, payload)
+    }
+
     fun sendGlucoseUnavailable(context: Context, event: GlucoseUnavailable) {
         val payload = JSONObject()
             .put("bleAddress", AutomaticSensorHandoff.localSensorAddress)
@@ -263,7 +272,7 @@ object WearDataSync {
         val prefs = context.applicationContext.getSharedPreferences("librecr_automatic_handoff", Context.MODE_PRIVATE)
         val revision = maxOf(System.currentTimeMillis(), prefs.getLong("settingsRevision", 0) + 1)
         prefs.edit().putLong("settingsRevision", revision).commit()
-        val payload = JSONObject().put("enabled", enabled).put("selectedWatchId", selectedWatchId)
+        val payload = JSONObject().put("enabled", enabled).put("preferPhone", true).put("selectedWatchId", selectedWatchId)
             .put("syncedAtMs", revision).toString().toByteArray(Charsets.UTF_8)
         putDataItem(context, AutomaticHandoff.SETTINGS, payload)
         sendToNearbyNodes(context, AutomaticHandoff.SETTINGS, payload)

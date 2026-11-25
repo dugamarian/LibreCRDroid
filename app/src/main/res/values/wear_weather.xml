@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wear_weather_title">Vreme pe ceas</string>
+    <string name="wear_weather_explanation">Telefonul preia vremea de la Open-Meteo și o trimite către LibreCR Wear.</string>
+    <string name="wear_weather_phone_location">Locația telefonului</string>
+    <string name="wear_weather_use_location">Folosește locația telefonului</string>
+    <string name="wear_weather_refresh">Actualizează acum</string>
+    <string name="wear_weather_disable">Oprește sincronizarea</string>
+    <string name="wear_weather_background">Pentru a urmări locația când aplicația este închisă, alege „Permite tot timpul” în setările de locație. Între timp, vremea se actualizează pentru ultima poziție cunoscută.</string>
+    <string name="wear_weather_permissions">Permisiuni de locație</string>
+    <string name="wear_weather_city">Oraș</string>
+    <string name="wear_weather_search">Caută</string>
+    <string name="wear_weather_working">Se actualizează…</string>
+    <string name="wear_weather_syncing">Vremea a fost trimisă pentru sincronizare.</string>
+    <string name="wear_weather_pending">Actualizarea nu a reușit. Verifică internetul și locația telefonului.</string>
+    <string name="wear_weather_location_denied">Permite locația aproximativă sau caută un oraș.</string>
+    <string name="wear_weather_no_city">Niciun oraș găsit.</string>
+</resources>

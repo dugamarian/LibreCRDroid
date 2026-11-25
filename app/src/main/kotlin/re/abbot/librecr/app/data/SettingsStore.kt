@@ -76,6 +76,7 @@ data class AppSettings(
     val alarms: AlarmSettings = AlarmSettings(),
     val cloud: CloudSettings = CloudSettings(),
     val liveUpdates: LiveUpdateSettings = LiveUpdateSettings(),
+    val glucoseBroadcast: GlucoseBroadcastSettings = GlucoseBroadcastSettings(),
     /** Opt-in experimental glucose notifications during Android Auto projection only. */
     val androidAutoNotificationsEnabled: Boolean = false,
     /** Dedicated BMW Connected Apps screen, started by AAIdrive while the car is connected. */
@@ -129,6 +130,8 @@ class SettingsStore(private val context: Context) {
     private val keyCloudPassword = stringPreferencesKey("cloud_password")
 
     private val keyLiveUpdatesEnabled = booleanPreferencesKey("live_updates_enabled")
+    private val keyGlucoseBroadcastEnabled = booleanPreferencesKey("glucose_broadcast_enabled")
+    private val keyGlucoseBroadcastDestinations = stringPreferencesKey("glucose_broadcast_destinations")
     private val keyAndroidAutoNotificationsEnabled = booleanPreferencesKey("android_auto_notifications_enabled")
     private val keyBmwIDriveEnabled = booleanPreferencesKey("bmw_idrive_enabled")
     private val keyBmwIDriveDisplayMode = stringPreferencesKey("bmw_idrive_display_mode")
@@ -205,6 +208,10 @@ class SettingsStore(private val context: Context) {
                 showTrendOnLockScreen = p[keyLiveUpdatesShowTrendOnLockScreen] ?: true,
                 showDeltaOnLockScreen = p[keyLiveUpdatesShowDeltaOnLockScreen] ?: true,
             ),
+            glucoseBroadcast = GlucoseBroadcastSettings(
+                enabled = p[keyGlucoseBroadcastEnabled] ?: false,
+                destinationPackages = p[keyGlucoseBroadcastDestinations] ?: "",
+            ),
             androidAutoNotificationsEnabled = p[keyAndroidAutoNotificationsEnabled] ?: false,
             bmwIDriveEnabled = p[keyBmwIDriveEnabled] ?: false,
             bmwIDriveDisplayMode = BmwIDriveDisplayMode.fromName(p[keyBmwIDriveDisplayMode]),
@@ -256,6 +263,15 @@ class SettingsStore(private val context: Context) {
     }
 
     suspend fun setUnit(unit: GlucoseUnit) = edit { it[keyUnit] = unit.name }
+
+    suspend fun setGlucoseBroadcastEnabled(enabled: Boolean) = edit {
+        it[keyGlucoseBroadcastEnabled] = enabled
+    }
+
+    suspend fun setGlucoseBroadcastDestinations(value: String) {
+        val packages = requireNotNull(glucoseBroadcastDestinations(value)) { "Invalid destination package" }
+        edit { it[keyGlucoseBroadcastDestinations] = packages.joinToString(" ") }
+    }
 
     suspend fun setBmwIDriveEnabled(enabled: Boolean) = edit {
         it[keyBmwIDriveEnabled] = enabled

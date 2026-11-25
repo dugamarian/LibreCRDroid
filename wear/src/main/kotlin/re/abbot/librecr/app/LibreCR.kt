@@ -16,6 +16,7 @@ import re.abbot.librecr.app.wear.WearDataSync
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
 import re.abbot.librecr.app.wear.ReceiverSessionBackup
 import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
+import re.abbot.librecr.app.wear.complication.WatchWeather
 
 /**
  * Minimal process-wide graph so the foreground service (which owns the
@@ -63,6 +64,7 @@ object LibreCR {
             }
         }
         WearDataSync.requestAppearance(app)
+        scope.launch { WatchWeather.restoreFromDataLayer(app) }
         initialized = true
     }
 }

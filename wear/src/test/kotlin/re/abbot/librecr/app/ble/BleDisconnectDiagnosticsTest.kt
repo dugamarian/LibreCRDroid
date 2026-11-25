@@ -74,35 +74,19 @@ class BleDisconnectDiagnosticsTest {
     }
 
     @Test
-    fun `auto connect gatt error arms a direct-connect escape attempt`() {
-        assertEquals(true, shouldRetryWithDirectConnect(autoConnect = true, status = 133))
-        assertEquals(true, shouldRetryWithDirectConnect(autoConnect = true, status = 62))
-        assertEquals(true, shouldRetryWithDirectConnect(autoConnect = true, status = 147))
-    }
-
-    @Test
-    fun `direct connection and supervision timeout keep normal reconnect strategy`() {
-        assertEquals(false, shouldRetryWithDirectConnect(autoConnect = false, status = 133))
-        assertEquals(false, shouldRetryWithDirectConnect(autoConnect = true, status = 8))
-    }
-
-    @Test
-    fun `status 8 during controller establishment escapes to one direct attempt`() {
-        assertEquals(
-            true,
-            shouldRetryWithDirectConnect(
-                autoConnect = true,
-                status = 8,
-                connectionWasStreaming = false,
+    fun `status 147 of an established link is assessed as a supervision timeout`() {
+        val result = assessBleDisconnect(
+            BleDisconnectEvidence(
+                status = 147,
+                localDisconnectRequested = false,
+                bluetoothEnabled = true,
+                rssiDbm = -80,
+                rssiAgeMs = 39_000,
+                lastNotifyAgeMs = 23_000,
             ),
         )
-        assertEquals(
-            false,
-            shouldRetryWithDirectConnect(
-                autoConnect = true,
-                status = 8,
-                connectionWasStreaming = true,
-            ),
-        )
+
+        assertEquals("link_supervision_timeout_no_controller_response", result.meaning)
+        assertEquals("short_rf_interference_or_sensor_missed_connection_events", result.probableCause)
     }
 }

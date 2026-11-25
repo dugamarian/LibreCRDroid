@@ -273,7 +273,7 @@ class PhoneWearListenerService : WearableListenerService() {
 
     private fun stopLocalConnection() {
         scope.launch {
-            AutomaticSensorHandoff.cancel()
+            AutomaticSensorHandoff.cancel(manual = true)
             val wasActive = LibreCR.manager.state.value.isActiveStopTarget()
             LibreCR.store.setAutoConnectEnabled(false)
             val stopped = LibreCR.manager.stopAndJoin()

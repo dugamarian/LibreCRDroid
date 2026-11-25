@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wear_weather_title">Météo sur la montre</string>
+    <string name="wear_weather_explanation">Le téléphone récupère la météo auprès d’Open-Meteo et la synchronise avec LibreCR Wear.</string>
+    <string name="wear_weather_phone_location">Position du téléphone</string>
+    <string name="wear_weather_use_location">Utiliser la position du téléphone</string>
+    <string name="wear_weather_refresh">Actualiser</string>
+    <string name="wear_weather_disable">Arrêter la synchronisation</string>
+    <string name="wear_weather_background">Pour suivre votre position quand l’application est fermée, choisissez « Toujours autoriser » dans les paramètres de localisation. En attendant, la météo est actualisée pour la dernière position connue.</string>
+    <string name="wear_weather_permissions">Autorisations de localisation</string>
+    <string name="wear_weather_city">Ville</string>
+    <string name="wear_weather_search">Rechercher</string>
+    <string name="wear_weather_working">Mise à jour…</string>
+    <string name="wear_weather_syncing">Météo envoyée pour synchronisation.</string>
+    <string name="wear_weather_pending">La mise à jour a échoué. Vérifiez la connexion et la localisation du téléphone.</string>
+    <string name="wear_weather_location_denied">Autorisez la localisation approximative ou recherchez une ville.</string>
+    <string name="wear_weather_no_city">Aucune ville trouvée.</string>
+</resources>

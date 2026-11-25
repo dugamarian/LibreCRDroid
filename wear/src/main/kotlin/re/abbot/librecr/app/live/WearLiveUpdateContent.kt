@@ -2,6 +2,9 @@ package re.abbot.librecr.app.live
 
 import re.abbot.librecr.app.WEAR_GLUCOSE_DISPLAY_HOLD_MS
 import re.abbot.librecr.app.ble.GlucoseUi
+import re.abbot.librecr.app.glucoseAgeLabel
+import re.abbot.librecr.app.glucoseAgeMinutes
+import re.abbot.librecr.app.nextGlucoseAgeLabelDelayMs
 import re.abbot.librecr.app.ble.toLastGlucose
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
@@ -9,6 +12,10 @@ import re.abbot.librecr.app.isWearGlucoseFresh
 import re.abbot.librecr.protocol.TrendArrowShape
 import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 import re.abbot.librecr.protocol.dataplane.SensorLifecycle
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Pure display policy: a non-numeric live packet must never resurrect a persisted value. */
 internal data class WearLiveUpdateContent(
@@ -37,27 +44,41 @@ internal data class WearLiveUpdateContent(
     val primaryText: String get() = if (reading == null) value else
         listOf(arrow, value, "Δ $delta").filter { it.isNotBlank() }.joinToString(" ")
 
-    // Four ordinary spaces surround the middle dot between glucose and delta (two per side).
-    // The trend arrow remains the separate notification icon, without a leading separator.
-    fun chipText(nowMs: Long): String =
-        when {
-            status == Status.VALUE_UNAVAILABLE -> "NA · ${ageMinutes(nowMs)}′"
-            reading == null -> "--"
-            else -> "$value  ·  $delta · ${ageMinutes(nowMs)}′"
-        }
+    /** Static bitmap text must remain truthful even while Wear cannot run an app repaint. */
+    fun observationTime(zoneId: ZoneId = ZoneId.systemDefault()): String =
+        if (observedAtMs > 0L) OBSERVATION_TIME.format(Instant.ofEpochMilli(observedAtMs).atZone(zoneId)) else "--:--"
 
-    fun ageMinutes(nowMs: Long): Long = ((nowMs - observedAtMs).coerceAtLeast(0L) / 60_000L)
+    fun ageMinutes(nowMs: Long): Long = glucoseAgeMinutes(observedAtMs, nowMs)
 
-    /** Only finite minute updates while fresh; no perpetual ticker after the reading expires. */
+    fun ageLabel(nowMs: Long): String = glucoseAgeLabel(observedAtMs, nowMs)
+
+    /**
+     * Two spaces surround the dot between glucose and delta. Wear never re-renders critical text
+     * (and it hides the chronometer in the chip), so the minutes advance only when the app reposts:
+     * GlucoseAgeAlarm wakes the app for that while readings are missing.
+     */
+    fun chipText(nowMs: Long): String? = when {
+        status == Status.VALUE_UNAVAILABLE -> "NA · ${ageLabel(nowMs)}"
+        reading == null -> null
+        else -> "$value  ·  $delta · ${ageLabel(nowMs)}"
+    }
+
+    /** Next change of the minute label while fresh, shared with the age complication. */
+    fun nextAgeLabelDelayMs(nowMs: Long): Long? =
+        if (hasFreshObservation) nextGlucoseAgeLabelDelayMs(observedAtMs, nowMs) else null
+
+    /** Minute labels (if shown) and the expiry; no perpetual ticker after the reading expires. */
     fun nextRefreshDelayMs(nowMs: Long, showAge: Boolean = true): Long? {
         if (!hasFreshObservation || observedAtMs <= 0L) return null
-        val age = (nowMs - observedAtMs).coerceAtLeast(0L)
-        val remaining = WEAR_GLUCOSE_DISPLAY_HOLD_MS - age
+        val remaining = WEAR_GLUCOSE_DISPLAY_HOLD_MS - (nowMs - observedAtMs).coerceAtLeast(0L)
         if (remaining <= 0L) return null
-        return if (showAge) minOf(60_000L - age % 60_000L, remaining) else remaining
+        // A label change, when one is left, always comes before the expiry.
+        return (if (showAge) nextAgeLabelDelayMs(nowMs) else null) ?: remaining
     }
 
     companion object {
+        private val OBSERVATION_TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
+
         fun from(
             live: GlucoseUi?,
             persisted: SensorStateStore.LastGlucose?,

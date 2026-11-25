@@ -42,6 +42,7 @@ import re.abbot.librecr.app.ui.sensor.SensorScreen
 import re.abbot.librecr.app.ui.settings.AlarmsScreen
 import re.abbot.librecr.app.ui.settings.AodScreen
 import re.abbot.librecr.app.ui.settings.CloudUploadScreen
+import re.abbot.librecr.app.ui.settings.GlucoseBroadcastScreen
 import re.abbot.librecr.app.ui.settings.FloatingScreen
 import re.abbot.librecr.app.ui.settings.LanguageScreen
 import re.abbot.librecr.app.ui.settings.LiveUpdatesScreen
@@ -109,6 +110,7 @@ fun LibreCRApp(
                         composable(Routes.ANDROID_AUTO) { AndroidAutoScreen() }
                         composable(Routes.BMW_IDRIVE) { BmwIDriveScreen() }
                         composable(Routes.CLOUD) { CloudUploadScreen() }
+                        composable(Routes.GLUCOSE_BROADCAST) { GlucoseBroadcastScreen() }
                         composable(Routes.FLOATING) { FloatingScreen() }
                         composable(Routes.AOD) { AodScreen() }
                         composable(Routes.WEAR_APPEARANCE) { WearAppearanceScreen() }
@@ -154,6 +156,7 @@ private fun routeTitle(route: String?): String = stringResource(
         Routes.ANDROID_AUTO -> R.string.title_android_auto
         Routes.BMW_IDRIVE -> R.string.idrive_title
         Routes.CLOUD -> R.string.title_cloud
+        Routes.GLUCOSE_BROADCAST -> R.string.broadcast_title
         Routes.FLOATING -> R.string.title_floating
         Routes.AOD -> R.string.title_aod
         Routes.WEAR_APPEARANCE -> R.string.title_wear_os

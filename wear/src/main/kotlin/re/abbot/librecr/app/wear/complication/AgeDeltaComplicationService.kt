@@ -11,6 +11,7 @@ import androidx.wear.watchface.complications.data.SmallImage
 import androidx.wear.watchface.complications.data.SmallImageComplicationData
 import androidx.wear.watchface.complications.data.SmallImageType
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
+import re.abbot.librecr.app.GlucoseAgeAlarm
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
@@ -20,6 +21,7 @@ import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.log.GlucoseLatencyTracer
+import re.abbot.librecr.app.nextGlucoseAgeRefreshDelayMs
 import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 
 class AgeDeltaComplicationService : TrackedComplicationDataSourceService() {
@@ -63,12 +65,25 @@ class AgeDeltaComplicationService : TrackedComplicationDataSourceService() {
                 "instanceId=${request.complicationInstanceId} type=${request.complicationType} " +
                 "immediate=${request.immediateResponseRequired}",
         )
+        val nowMs = System.currentTimeMillis()
+        val sensorErrorAtMs = if (sensorError) status?.observedAtMs ?: live?.receivedAtMs ?: 0L else 0L
+        val unavailableAtMs = if (liveUnavailable) live?.receivedAtMs ?: 0L else reading?.receivedAtMs ?: 0L
+        val shownAtMs = when {
+            sensorError -> sensorErrorAtMs
+            unavailable -> unavailableAtMs
+            else -> reading?.receivedAtMs ?: 0L
+        }
+        // The image's "<1 m." changes only when we repaint it: wake for the next minute or expiry.
+        GlucoseAgeAlarm.update(
+            this, GlucoseAgeAlarm.Surface.AGE_COMPLICATION, nextGlucoseAgeRefreshDelayMs(shownAtMs, nowMs), nowMs,
+        )
         return buildData(
             request.complicationType, reading, tapAction(), appearance, attention,
             sensorError = sensorError,
-            sensorErrorAtMs = if (sensorError) status?.observedAtMs ?: live?.receivedAtMs ?: 0L else 0L,
+            sensorErrorAtMs = sensorErrorAtMs,
             unavailable = unavailable,
-            unavailableAtMs = if (liveUnavailable) live?.receivedAtMs ?: 0L else reading?.receivedAtMs ?: 0L,
+            unavailableAtMs = unavailableAtMs,
+            nowMs = nowMs,
         )
     }
 
@@ -82,12 +97,14 @@ class AgeDeltaComplicationService : TrackedComplicationDataSourceService() {
         sensorErrorAtMs: Long = 0L,
         unavailable: Boolean = false,
         unavailableAtMs: Long = 0L,
+        nowMs: Long = System.currentTimeMillis(),
     ): ComplicationData {
         val image = Icon.createWithBitmap(
             GlucoseComplicationRenderer.buildAgeDeltaBitmap(
                 this, reading, appearance, attention = attention,
                 sensorError = sensorError, sensorErrorAtMs = sensorErrorAtMs,
                 unavailable = unavailable, unavailableAtMs = unavailableAtMs,
+                nowMs = nowMs,
             ),
         )
         val description = PlainComplicationText.Builder(

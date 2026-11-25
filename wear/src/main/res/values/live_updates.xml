@@ -2,11 +2,10 @@
 <resources>
     <string name="wear_live_title">LibreCR · glicemie live</string>
     <string name="wear_live_channel">Glicemie live</string>
-    <string name="wear_live_age">%1$d min</string>
     <string name="wear_live_delta">Δ %1$s %2$s/min</string>
     <string name="wear_live_pin">Activează Live Updates</string>
     <string name="wear_live_unpin">Ascunde Live Updates</string>
     <string name="wear_live_options">Live Updates</string>
-    <string name="wear_live_description">Trend, glicemie, delta și minute de la citire. Afișarea pe cadran depinde de ceas.</string>
+    <string name="wear_live_description">Trend, glicemie, delta și timpul de la citire. Afișarea pe cadran depinde de ceas.</string>
     <string name="wear_live_close">Închide</string>
 </resources>

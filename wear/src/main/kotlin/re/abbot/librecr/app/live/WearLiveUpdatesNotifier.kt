@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import java.lang.ref.WeakReference
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import re.abbot.librecr.app.GlucoseAgeAlarm
 import re.abbot.librecr.app.LibreCR
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
@@ -48,6 +50,8 @@ object WearLiveUpdatesNotifier {
     private const val ENABLED = "enabled"
     internal const val ACTION_UNPIN = "re.abbot.librecr.app.live.UNPIN"
     internal const val ACTION_PIN = "re.abbot.librecr.app.live.PIN"
+    internal const val ACTION_DISMISS = "re.abbot.librecr.app.live.DISMISS"
+    internal const val EXTRA_TIMEOUT_AT_ELAPSED_MS = "timeout_at_elapsed_ms"
 
     private val mutableEnabled = MutableStateFlow(true)
     val enabled = mutableEnabled.asStateFlow()
@@ -83,7 +87,10 @@ object WearLiveUpdatesNotifier {
             .getBoolean(ENABLED, true)
         updateObservationMode()
         scope.launch {
-            collectWearLiveUpdates(observationMode, ::contentFlow, { refresh(app) })
+            collectWearLiveUpdates(
+                observationMode, ::contentFlow, { refresh(app) },
+                refreshSignals = { wearLiveUpdateClockSignals(app) },
+            )
         }
     }
 
@@ -152,6 +159,7 @@ object WearLiveUpdatesNotifier {
         }
         maybePosted = true
         lastNotificationKey = content.notificationKey(enabled.value, foregroundRunning, nowMs)
+        scheduleAgeAlarm(service, content, nowMs)
     }
 
     @Synchronized
@@ -173,11 +181,13 @@ object WearLiveUpdatesNotifier {
         // The disabled relay case does not even derive display content or touch notification IPC
         // after the existing card has been removed once.
         if (!foregroundRunning && !enabled.value) {
+            GlucoseAgeAlarm.clear(app, GlucoseAgeAlarm.Surface.LIVE_UPDATE_CHIP)
             cancelIfPosted(app)
             return
         }
         val nowMs = System.currentTimeMillis()
         val content = currentContent(nowMs)
+        scheduleAgeAlarm(app, content, nowMs)
         if (!foregroundRunning && !content.hasFreshObservation) {
             cancelIfPosted(app)
             return
@@ -193,6 +203,19 @@ object WearLiveUpdatesNotifier {
             .onFailure { BleLog.log("wear live update failed: ${it.message}") }
     }
 
+    /**
+     * Only the pinned chip shows minutes. A relayed card also has an OS timeout, so it needs just
+     * the label changes; the foreground card has none and needs the expiry repost as well.
+     */
+    private fun scheduleAgeAlarm(context: Context, content: WearLiveUpdateContent, nowMs: Long) {
+        val delayMs = when {
+            !enabled.value -> null
+            foregroundRunning -> content.nextRefreshDelayMs(nowMs)
+            else -> content.nextAgeLabelDelayMs(nowMs)
+        }
+        GlucoseAgeAlarm.update(context, GlucoseAgeAlarm.Surface.LIVE_UPDATE_CHIP, delayMs, nowMs)
+    }
+
     private fun cancelIfPosted(context: Context) {
         if (maybePosted) {
             manager(context).cancel(NOTIFICATION_ID)
@@ -204,6 +227,9 @@ object WearLiveUpdatesNotifier {
     private fun buildNotification(context: Context, content: WearLiveUpdateContent, nowMs: Long): Notification {
         val fresh = content.hasFreshObservation
         val pinned = enabled.value
+        val timeoutMs = if (fresh && !foregroundRunning) {
+            (content.observedAtMs + WEAR_GLUCOSE_DISPLAY_HOLD_MS - nowMs).coerceAtLeast(1L)
+        } else null
         val openApp = openAppAction ?: PendingIntent.getActivity(
             context, 120, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -215,17 +241,13 @@ object WearLiveUpdatesNotifier {
             WearLiveUpdateContent.Status.SENSOR_ERROR -> context.getString(R.string.sensor_error)
             WearLiveUpdateContent.Status.UNAVAILABLE -> context.getString(R.string.sensor_unavailable)
         }
-        val age = context.getString(R.string.wear_live_age, content.ageMinutes(nowMs))
-        val detail = if (!pinned && fresh) {
-            // The ordinary service notification uses the OS timestamp for age. It needs only
-            // reading/status updates and one expiry check, not an app-owned minute ticker.
-            if (content.status == WearLiveUpdateContent.Status.VALUE_UNAVAILABLE) context.getString(R.string.sensor_unavailable)
-            else "${content.unit.label} · ${context.getString(R.string.wear_live_delta, content.delta, content.unit.label)}"
-        } else if (content.status == WearLiveUpdateContent.Status.VALUE_UNAVAILABLE) {
-            "${context.getString(R.string.sensor_unavailable)} · $age"
-        } else if (fresh) {
-            "${content.unit.label} · ${context.getString(R.string.wear_live_delta, content.delta, content.unit.label)} · $age"
-        } else statusText
+        // The card leaves age to Wear (the `when` time or chronometer, the Recents stopwatch).
+        // Only the chip carries minutes, kept current by GlucoseAgeAlarm.
+        val detail = when {
+            content.status == WearLiveUpdateContent.Status.VALUE_UNAVAILABLE -> context.getString(R.string.sensor_unavailable)
+            fresh -> "${content.unit.label} · ${context.getString(R.string.wear_live_delta, content.delta, content.unit.label)}"
+            else -> statusText
+        }
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(trendIcon(content))
             .setContentTitle(if (fresh) statusText else context.getString(R.string.wear_live_title))
@@ -238,7 +260,7 @@ object WearLiveUpdatesNotifier {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setShowWhen(fresh)
             .setContentIntent(openApp)
-            .setDeleteIntent(actionIntent(context, ACTION_UNPIN))
+            .setDeleteIntent(dismissIntent(context, timeoutMs))
             .addAction(
                 0,
                 context.getString(if (pinned) R.string.wear_live_unpin else R.string.wear_live_pin),
@@ -246,19 +268,26 @@ object WearLiveUpdatesNotifier {
             )
 
         if (fresh) {
-            builder.setWhen(content.observedAtMs)
-            if (!foregroundRunning) {
+            // A relayed sample stamped by a phone clock running slightly ahead must not start the
+            // card's count-up chronometer below zero, where Wear hides it.
+            builder.setWhen(minOf(content.observedAtMs, nowMs))
+            if (timeoutMs != null) {
                 // The OS removes a relayed card even if the process is killed or stays asleep.
-                builder.setTimeoutAfter((content.observedAtMs + WEAR_GLUCOSE_DISPLAY_HOLD_MS - nowMs).coerceAtLeast(1L))
+                builder.setTimeoutAfter(timeoutMs)
+            }
+            if (pinned) {
+                // Wear counts up from the sample in the card itself, also while this process
+                // sleeps. In the chip, the critical text below outranks the chronometer.
+                builder.setUsesChronometer(true)
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA && fresh && pinned) {
             // Wear OS 7 uses the same API. Standard style is supported; MetricStyle is not.
             builder.setRequestPromotedOngoing(true)
-                .setShortCriticalText(content.chipText(nowMs))
+            content.chipText(nowMs)?.let { builder.setShortCriticalText(it) }
         }
         if (pinned) {
-            val icon = WearLiveUpdateIcon.create(content, nowMs)
+            val icon = WearLiveUpdateIcon.create(content)
             val ongoingStatus = Status.Builder().addPart("reading", Status.TextPart(statusText))
             if (fresh) {
                 // Wear evaluates this timer itself, even when our process is asleep. Status timers
@@ -299,6 +328,22 @@ object WearLiveUpdatesNotifier {
         )
     }
 
+    private fun dismissIntent(context: Context, timeoutMs: Long?): PendingIntent {
+        // Android sends deleteIntent for automatic timeouts too, without a removal reason.
+        // Match its elapsed-realtime deadline so deep sleep or a wall-clock change cannot turn
+        // expiry into a persistent opt-out. Explicit UNPIN actions are never time-limited.
+        val timeoutAt = timeoutMs?.let { SystemClock.elapsedRealtime() + it } ?: Long.MAX_VALUE
+        val intent = Intent(context, WearLiveUpdatesReceiver::class.java)
+            .setAction(ACTION_DISMISS)
+            // Extras do not distinguish PendingIntents. Give each deadline its own identity so
+            // a delayed timeout for an old card cannot acquire a newer card's deadline.
+            .setData(Uri.parse("librecr://live-update-dismiss/$timeoutAt"))
+            .putExtra(EXTRA_TIMEOUT_AT_ELAPSED_MS, timeoutAt)
+        return PendingIntent.getBroadcast(
+            context, 120, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
     private fun ensureChannel(context: Context) {
         if (channelCreated) return
         manager(context).createNotificationChannel(NotificationChannel(
@@ -311,11 +356,20 @@ object WearLiveUpdatesNotifier {
         context.getSystemService(NotificationManager::class.java)
 }
 
-/** Dismissal/unpin is remembered across new readings and process restarts until explicitly enabled. */
+/** Explicit unpin and dismissal before timeout persist; automatic expiry never changes opt-in. */
 class WearLiveUpdatesReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != WearLiveUpdatesNotifier.ACTION_UNPIN && intent.action != WearLiveUpdatesNotifier.ACTION_PIN) return
+        val enabled = when (intent.action) {
+            WearLiveUpdatesNotifier.ACTION_PIN -> true
+            WearLiveUpdatesNotifier.ACTION_UNPIN -> false
+            WearLiveUpdatesNotifier.ACTION_DISMISS -> {
+                val timeoutAt = intent.getLongExtra(WearLiveUpdatesNotifier.EXTRA_TIMEOUT_AT_ELAPSED_MS, Long.MAX_VALUE)
+                if (SystemClock.elapsedRealtime() >= timeoutAt) return
+                false
+            }
+            else -> return
+        }
         LibreCR.init(context)
-        WearLiveUpdatesNotifier.setEnabled(context, intent.action == WearLiveUpdatesNotifier.ACTION_PIN)
+        WearLiveUpdatesNotifier.setEnabled(context, enabled)
     }
 }

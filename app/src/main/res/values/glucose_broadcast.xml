@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="broadcast_title">Transmiterea glicemiei</string>
+    <string name="broadcast_subtitle">Glucose broadcasting către alte aplicații</string>
+    <string name="broadcast_enable">Trimite glicemia către alte aplicații</string>
+    <string name="broadcast_description">Transmite local glicemia, timestampul original, trendul și delta pe minut în format xDrip. Funcționează atât cu citirile de pe telefon, cât și cu cele primite de la ceas. Sunt trimise numai citirile valide, mai noi de 6 minute.</string>
+    <string name="broadcast_sharing">Dezactivat implicit. Când este activat, aplicațiile compatibile pot primi datele tale de glicemie. Dacă nu specifici destinatari, orice aplicație care ascultă acest broadcast le poate primi.</string>
+    <string name="broadcast_destinations_title">Aplicații destinatare</string>
+    <string name="broadcast_packages">Nume de pachete (opțional)</string>
+    <string name="broadcast_packages_hint">Exemplu: com.example.glucose. Separă mai multe pachete prin spații sau virgule.</string>
+    <string name="broadcast_packages_error">Introdu nume valide de pachete, de exemplu com.example.glucose.</string>
+    <string name="broadcast_save">Salvează destinatarii</string>
+    <string name="broadcast_destinations_help">Lasă câmpul gol pentru toate aplicațiile compatibile. Dacă aplicația destinatară nu primește date în fundal, introdu numele pachetului ei și salvează. Modificările se aplică imediat; ultima citire validă este transmisă din nou cu timestampul ei original.</string>
+    <string name="broadcast_setup_title">Configurarea aplicației destinatare</string>
+    <string name="broadcast_setup">Activează recepția xDrip broadcast în aplicația care va afișa glicemia. Valoarea transmisă este întotdeauna în mg/dL, iar aplicația destinatară poate afișa mmol/L. Timestampul este păstrat pentru calcularea vechimii citirii. Dacă nu mai vin date, aplicația destinatară trebuie să marcheze citirea ca veche.</string>
+</resources>

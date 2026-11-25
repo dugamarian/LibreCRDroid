@@ -14,6 +14,7 @@ import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.data.WearDisplayFontWeight
+import re.abbot.librecr.app.glucoseAgeLabel
 import re.abbot.librecr.protocol.TrendArrowShape
 import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 import java.time.Instant
@@ -24,7 +25,12 @@ import kotlin.math.roundToInt
 object GlucoseComplicationRenderer {
     /** Keep the last value/timestamp visible through short BLE recovery, matching Juggluco. */
     const val STALE_AFTER_MS = WEAR_GLUCOSE_DISPLAY_HOLD_MS
-    private const val TIMESTAMP_TEXT_SCALE = 0.66f
+    // Largest age line that still clears the circular crop (3.5 % margin) and the delta line for
+    // "<1 m.", "5 m.", "17:41" and "--:--", measured with the bundled bold font. The outline adds
+    // weight beyond the font's own bold.
+    private const val AGE_TEXT_SIZE = 0.262f
+    private const val AGE_TEXT_CENTER_Y = 0.346f
+    private const val AGE_TEXT_STROKE = 0.06f
     private val COLOR_ERROR = 0xFFE53935.toInt()
     private val COLOR_WARN = 0xFFFFB300.toInt()
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault())
@@ -37,6 +43,13 @@ object GlucoseComplicationRenderer {
 
     private fun timeText(atMs: Long): String =
         atMs.takeIf { it > 0L }?.let { timeFormatter.format(Instant.ofEpochMilli(it)) } ?: "--:--"
+
+    /**
+     * Minutes since [atMs] inside the display window ("<1 m.", "1 m." …), kept current by
+     * GlucoseAgeAlarm; after it, the sample's clock time, which never needs another repaint.
+     */
+    fun ageText(atMs: Long, nowMs: Long = System.currentTimeMillis()): String =
+        if (atMs > 0L && nowMs - atMs < STALE_AFTER_MS) glucoseAgeLabel(atMs, nowMs) else timeText(atMs)
 
     fun deltaText(reading: SensorStateStore.LastGlucose?, unit: GlucoseUnit = GlucoseUnit.MG_DL): String =
         formatDelta(reading?.deltaMgDlPerMin, unit)
@@ -61,8 +74,9 @@ object GlucoseComplicationRenderer {
         sensorErrorAtMs: Long = 0L,
         unavailable: Boolean = false,
         unavailableAtMs: Long = 0L,
+        nowMs: Long = System.currentTimeMillis(),
     ): Bitmap {
-        val fresh = isFresh(reading)
+        val fresh = isFresh(reading, nowMs)
         val statusAtMs = when {
             sensorError -> sensorErrorAtMs
             unavailable -> unavailableAtMs
@@ -80,10 +94,15 @@ object GlucoseComplicationRenderer {
             unavailable -> settings.timestampStaleColor
             else -> settings.timestampColor(stale = !fresh)
         }
-        paint.typeface = typefaceFor(context, settings.fontWeight)
-        paint.textSize = size * 0.34f * TIMESTAMP_TEXT_SCALE
-        val time = if (sensorError || unavailable) timeText(statusAtMs) else timeText(reading)
-        drawCenteredText(canvas, time, size / 2f, size * 0.27f, paint)
+        paint.typeface = typefaceFor(context, WearDisplayFontWeight.EXTRA_BOLD)
+        paint.textSize = size * AGE_TEXT_SIZE
+        paint.style = Paint.Style.FILL_AND_STROKE
+        paint.strokeWidth = paint.textSize * AGE_TEXT_STROKE
+        paint.strokeJoin = Paint.Join.ROUND
+        val time = ageText(if (sensorError || unavailable) statusAtMs else reading?.receivedAtMs ?: 0L, nowMs)
+        drawCenteredText(canvas, time, size / 2f, size * AGE_TEXT_CENTER_Y, paint)
+        paint.style = Paint.Style.FILL
+        paint.strokeWidth = 0f
         paint.color = if (sensorError || unavailable) settings.timestampStaleColor else settings.deltaColorFor(reading?.mgDL)
         paint.typeface = typefaceFor(context, settings.fontWeight)
         paint.textSize = size * 0.36f

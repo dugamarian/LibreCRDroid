@@ -25,10 +25,16 @@ class AutoConnectReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 LibreCR.init(context)
+                // A loop that survived the Bluetooth restart may still wait on a connect which the
+                // restarted stack no longer knows; the start below is ignored while that loop runs.
+                if (action == BluetoothAdapter.ACTION_STATE_CHANGED) LibreCR.manager.onBluetoothRestarted()
                 LibreComplicationUpdater.requestAll(context)
                 val session = LibreCR.store.loadSession()
                 val autoConnect = LibreCR.store.autoConnectEnabled()
-                if (session != null) ReceiverRecoveryService.ensure(context, AutomaticSensorHandoff.monitoringRequired)
+                if (session != null) {
+                    if (AutomaticSensorHandoff.phonePriorityServiceRequired) SensorForegroundService.ensureStandby(context)
+                    else ReceiverRecoveryService.ensure(context, AutomaticSensorHandoff.monitoringRequired)
+                }
                 if (session == null || !autoConnect) {
                     BleLog.log("receiver: auto-connect skipped action=$action session=${session != null} enabled=$autoConnect")
                     return@launch

@@ -67,6 +67,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
     val scope = rememberCoroutineScope()
     val savedSession by LibreCR.store.sessionFlow.collectAsState(initial = null)
     val watchTakeover by LibreCR.store.watchTakeoverFlow.collectAsState(initial = false)
+    val watchStandbyReady by AutomaticSensorHandoff.watchStandbyReady.collectAsState()
 
     val accountlessUniqueId = remember { libreCrAccountlessUniqueId(ctx) }
     val defaultReceiverId = remember(accountlessUniqueId) { Libre3ReceiverID.accountless(accountlessUniqueId) }
@@ -80,7 +81,9 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
     var wearMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var wearError by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (appSettings.automaticSensorHandoffEnabled) AutomaticSensorHandoff.onSettingsChanged(true)
+    }
 
     LaunchedEffect(savedSession?.bleAddress) {
         if (savedSession == null) {
@@ -93,7 +96,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
     fun startService(allowCandidateFirstPair: Boolean = false) {
         permLauncher.launch(requiredPermissions())
         scope.launch {
-            AutomaticSensorHandoff.cancel()
+            AutomaticSensorHandoff.cancel(manual = true)
             LibreCR.store.setAutoConnectEnabled(true)
             LibreCR.store.setWatchTakeoverEnabled(false)
             SensorForegroundService.start(ctx, allowCandidateFirstPair)
@@ -123,7 +126,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             sensorFirmwareVersion = result.patchInfo.firmwareVersion,
         )
         scope.launch {
-            AutomaticSensorHandoff.cancel()
+            AutomaticSensorHandoff.cancel(manual = true)
             if (replaceExistingSession) {
                 SensorForegroundService.stop(ctx)
                 LibreCR.manager.stop()
@@ -233,7 +236,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
     fun connectNewSensor() {
         val previousSession = savedSession
         scope.launch {
-            AutomaticSensorHandoff.cancel()
+            AutomaticSensorHandoff.cancel(manual = true)
             nfcError = null
             nfcMessage = "Pregătesc conectarea la un senzor Libre 3 nou..."
             if (!refreshReceiverIdFromLibreViewIfConfigured()) return@launch
@@ -285,7 +288,8 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
         // screen. Commit the takeover intent up front so the switch flips on immediately and stays on
         // (it is driven by the persisted watchTakeoverFlow); revert only if the phone fails to release.
         LibreCR.appScope.launch {
-            AutomaticSensorHandoff.cancel()
+            // A manual route is an explicit override of the phone-priority policy.
+            AutomaticSensorHandoff.cancel(manual = true)
             LibreCR.store.setWatchTakeoverEnabled(true)
             wearBusy = true
             wearError = null
@@ -381,9 +385,14 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
                 stringResource(R.string.automatic_handoff_enabled),
                 appSettings.automaticSensorHandoffEnabled,
             ) { enabled ->
+                if (enabled) permLauncher.launch(requiredPermissions())
                 scope.launch { LibreCR.settings.setAutomaticSensorHandoffEnabled(enabled) }
             }
             Text(stringResource(R.string.automatic_handoff_description))
+            if (appSettings.automaticSensorHandoffEnabled && !watchStandbyReady) {
+                Text(stringResource(R.string.automatic_handoff_waiting_for_watch),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         SavedSensorCard(savedSession, patchInfo)

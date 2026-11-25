@@ -18,6 +18,9 @@
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Chip and age-complication minutes during a reading gap (GlucoseAgeAlarm); granted at install. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="com.google.android.wearable.permission.RECEIVE_COMPLICATION_DATA" />
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
@@ -62,6 +65,10 @@
                 <action android:name="com.google.android.gms.wearable.REQUEST_RECEIVED" />
                 <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
                 <data android:host="*" android:pathPrefix="/librecr" android:scheme="wear" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.CAPABILITY_CHANGED" />
+                <data android:host="*" android:path="/librecr_phone_sensor_receiver" android:scheme="wear" />
             </intent-filter>
         </service>
 
@@ -117,6 +124,57 @@
         </service>
 
         <service
+            android:name="re.abbot.librecr.app.wear.complication.DateWeatherComplicationService"
+            android:exported="true"
+            android:icon="@drawable/ic_weather_partly_cloudy"
+            android:label="@string/complication_date_weather"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SHORT_TEXT,LONG_TEXT" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="1800" />
+            <meta-data
+                android:name="android.support.wearable.complications.PROVIDER_CONFIG_ACTION"
+                android:value="re.abbot.librecr.app.CONFIGURE_WEATHER" />
+        </service>
+
+        <service
+            android:name="re.abbot.librecr.app.wear.complication.DateWeatherImageComplicationService"
+            android:exported="true"
+            android:icon="@drawable/ic_weather_partly_cloudy"
+            android:label="@string/complication_date_weather_high_contrast"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SMALL_IMAGE" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="1800" />
+            <meta-data
+                android:name="android.support.wearable.complications.PROVIDER_CONFIG_ACTION"
+                android:value="re.abbot.librecr.app.CONFIGURE_WEATHER" />
+        </service>
+
+        <activity
+            android:name="re.abbot.librecr.app.wear.complication.WeatherConfigurationActivity"
+            android:exported="true"
+            android:label="@string/complication_date_weather">
+            <intent-filter>
+                <action android:name="re.abbot.librecr.app.CONFIGURE_WEATHER" />
+                <category android:name="android.support.wearable.complications.category.PROVIDER_CONFIG" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <service
             android:name="re.abbot.librecr.app.wear.complication.WatchBatteryComplicationService"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
@@ -139,6 +197,10 @@
 
         <receiver
             android:name="re.abbot.librecr.app.live.WearLiveUpdatesReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name="re.abbot.librecr.app.GlucoseAgeAlarm$Receiver"
             android:exported="false" />
 
         <service
