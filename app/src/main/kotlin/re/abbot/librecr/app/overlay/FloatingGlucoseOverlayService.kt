@@ -31,7 +31,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.isFreshGlucose
@@ -125,7 +125,7 @@ class FloatingGlucoseOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
         prefs = overlayPrefs()
         prefs.registerOnSharedPreferenceChangeListener(prefListener)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -251,49 +251,49 @@ class FloatingGlucoseOverlayService : Service() {
         // appended on every reading anyway — so no manual per-reading append here (it was redundant:
         // the next replaceHistory rebuilt the deque from the blob regardless).
         scope.launch {
-            LibreCR.manager.glucose.collectLatest { reading ->
+            GlucoRitm.manager.glucose.collectLatest { reading ->
                 localReading = reading
                 publishReading()
             }
         }
         scope.launch {
-            LibreCR.manager.state.collectLatest {
+            GlucoRitm.manager.state.collectLatest {
                 connectionState = it
                 publishReading()
             }
         }
         scope.launch {
-            LibreCR.store.lastGlucoseFlow.collectLatest { last ->
+            GlucoRitm.store.lastGlucoseFlow.collectLatest { last ->
                 storedReading = last?.toGlucoseUi()
                 publishReading()
             }
         }
         scope.launch {
-            LibreCR.store.sensorStatusFlow.collectLatest {
+            GlucoRitm.store.sensorStatusFlow.collectLatest {
                 sensorAttention = it?.attention ?: Libre3SensorAttention.None
                 publishReading()
             }
         }
         scope.launch {
-            LibreCR.store.sensorWarmupFlow.collectLatest {
+            GlucoRitm.store.sensorWarmupFlow.collectLatest {
                 warmupStartedAtMs = it?.startedAtMs
                 publishReading()
             }
         }
         scope.launch {
-            LibreCR.store.sessionFlow.collectLatest {
+            GlucoRitm.store.sessionFlow.collectLatest {
                 warmupDurationMinutes =
                     it?.warmupMinutes ?: SensorLifecycle.DEFAULT_WARMUP_DURATION_MINUTES
                 publishReading()
             }
         }
         scope.launch {
-            LibreCR.store.glucoseHistoryFlow.collectLatest { storedHistory ->
+            GlucoRitm.store.glucoseHistoryFlow.collectLatest { storedHistory ->
                 replaceHistory(storedHistory.map { it.toGlucoseUi() })
             }
         }
         scope.launch {
-            LibreCR.settings.settingsFlow
+            GlucoRitm.settings.settingsFlow
                 .map { Triple(it.unit, it.targetLow, it.targetHigh) }
                 .distinctUntilChanged()
                 .collectLatest { (unit, low, high) ->

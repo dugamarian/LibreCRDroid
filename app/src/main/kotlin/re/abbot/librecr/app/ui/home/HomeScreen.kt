@@ -36,7 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.ble.GlucoseUi
@@ -69,14 +69,14 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     val settings = LocalAppSettings.current
     val glucoseColors = LocalGlucoseColors.current
 
-    val local by LibreCR.manager.glucose.collectAsState()
-    val remote by LibreCR.store.lastGlucoseFlow.collectAsState(initial = null)
-    val session by LibreCR.store.sessionFlow.collectAsState(initial = null)
-    val lifecycle by LibreCR.store.sensorLifecycleFlow.collectAsState(initial = null)
-    val warmup by LibreCR.store.sensorWarmupFlow.collectAsState(initial = null)
-    val sensorStatus by LibreCR.store.sensorStatusFlow.collectAsState(initial = null)
-    val state by LibreCR.manager.state.collectAsState()
-    val statusLine by LibreCR.manager.statusLine.collectAsState()
+    val local by GlucoRitm.manager.glucose.collectAsState()
+    val remote by GlucoRitm.store.lastGlucoseFlow.collectAsState(initial = null)
+    val session by GlucoRitm.store.sessionFlow.collectAsState(initial = null)
+    val lifecycle by GlucoRitm.store.sensorLifecycleFlow.collectAsState(initial = null)
+    val warmup by GlucoRitm.store.sensorWarmupFlow.collectAsState(initial = null)
+    val sensorStatus by GlucoRitm.store.sensorStatusFlow.collectAsState(initial = null)
+    val state by GlucoRitm.manager.state.collectAsState()
+    val statusLine by GlucoRitm.manager.statusLine.collectAsState()
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val attention = sensorStatus?.attention ?: Libre3SensorAttention.None
@@ -118,7 +118,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     }
     // Keep the recent list cheap and live, while the chart receives enough persistent history
     // to pan through all of its 3-day window.
-    val ring by LibreCR.store.glucoseHistoryFlow.collectAsState(initial = emptyList())
+    val ring by GlucoRitm.store.glucoseHistoryFlow.collectAsState(initial = emptyList())
     // Chart uses the uncapped chart value (chartMgDL) so deep hypos below the ~40 "LO" floor are
     // visible; the recent list keeps the capped mgDL. Fallback to mgDL when no chart value is stored.
     val liveSamples = remember(ring) {
@@ -129,7 +129,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     // without re-querying 72h of SQLite every minute.
     val persistent by produceState(initialValue = emptyList<GlucoseSample>()) {
         while (true) {
-            value = LibreCR.history.chartSamples(System.currentTimeMillis() - CHART_HISTORY_MS)
+            value = GlucoRitm.history.chartSamples(System.currentTimeMillis() - CHART_HISTORY_MS)
             delay(DEEP_HISTORY_REFRESH_MS)
         }
     }

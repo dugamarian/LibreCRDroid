@@ -5,7 +5,7 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.live.WearLiveUpdatesNotifier
 
@@ -45,10 +45,10 @@ object StaleRepaintScheduler {
 
 class StaleRepaintReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        LibreCR.init(context)
+        GlucoRitm.init(context)
         WearLiveUpdatesNotifier.refresh(context)
         BleLog.log("COMPLICATION_STALE_REPAINT freshness boundary reached; repainting")
         val pending = goAsync()
-        LibreComplicationUpdater.requestGlucose(context).invokeOnCompletion { pending.finish() }
+        GlucoRitmComplicationUpdater.requestGlucose(context).invokeOnCompletion { pending.finish() }
     }
 }

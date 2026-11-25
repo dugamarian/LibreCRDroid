@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.data.ImportedSession
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.WearAppearanceSettings
@@ -394,7 +394,7 @@ object WearDataSync {
     }
 
     private suspend fun selectedWearNodeId(): String =
-        runCatching { LibreCR.settings.current().selectedWearNodeId }
+        runCatching { GlucoRitm.settings.current().selectedWearNodeId }
             .onFailure {
                 BleLog.log(
                     "wear: selected node lookup failed; using automatic routing: " +

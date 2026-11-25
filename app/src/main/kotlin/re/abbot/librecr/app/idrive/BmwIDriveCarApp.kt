@@ -85,7 +85,7 @@ internal class BmwIDriveCarApp(
         val dimensions = RHMIDimensions.create(capabilities)
         onStage("RHMI_CREATE")
         val handle = remote.rhmi_create(null,
-            BMWRemoting.RHMIMetaData(APP_ID, BMWRemoting.VersionInfo(0, 1, 0), APP_ID, "LibreCR"))
+            BMWRemoting.RHMIMetaData(APP_ID, BMWRemoting.VersionInfo(0, 1, 0), APP_ID, "GlucoRitm"))
         rhmiHandle = handle
         onStage("RHMI_RESOURCES")
         remote.rhmi_setResourceCached(handle, BMWRemoting.RHMIResourceType.DESCRIPTION, ByteArrayInputStream(description))

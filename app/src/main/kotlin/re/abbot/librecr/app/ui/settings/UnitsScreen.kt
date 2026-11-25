@@ -19,7 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.ui.common.LocalAppSettings
@@ -42,7 +42,7 @@ fun UnitsScreen(modifier: Modifier = Modifier) {
                 GlucoseUnit.entries.forEach { u ->
                     FilterChip(
                         selected = settings.unit == u,
-                        onClick = { scope.launch { LibreCR.settings.setUnit(u) } },
+                        onClick = { scope.launch { GlucoRitm.settings.setUnit(u) } },
                         label = { Text(u.label) },
                     )
                 }
@@ -54,14 +54,14 @@ fun UnitsScreen(modifier: Modifier = Modifier) {
             Text("${stringResource(R.string.units_low)}: ${settings.unit.formatWithUnit(settings.targetLow)}", fontWeight = FontWeight.SemiBold)
             Slider(
                 value = settings.targetLow.toFloat(),
-                onValueChange = { v -> scope.launch { LibreCR.settings.setTargets(v.toInt(), settings.targetHigh) } },
+                onValueChange = { v -> scope.launch { GlucoRitm.settings.setTargets(v.toInt(), settings.targetHigh) } },
                 valueRange = 60f..110f,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text("${stringResource(R.string.units_high)}: ${settings.unit.formatWithUnit(settings.targetHigh)}", fontWeight = FontWeight.SemiBold)
             Slider(
                 value = settings.targetHigh.toFloat(),
-                onValueChange = { v -> scope.launch { LibreCR.settings.setTargets(settings.targetLow, v.toInt()) } },
+                onValueChange = { v -> scope.launch { GlucoRitm.settings.setTargets(settings.targetLow, v.toInt()) } },
                 valueRange = 140f..220f,
                 modifier = Modifier.fillMaxWidth(),
             )

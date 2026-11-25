@@ -29,7 +29,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.ui.common.LocalAppSettings
@@ -63,7 +63,7 @@ fun LogScreen(modifier: Modifier = Modifier) {
             ) { enabled ->
                 loggingEnabled = enabled
                 BleLog.setEnabled(enabled)
-                scope.launch { LibreCR.settings.setDiagnosticLoggingEnabled(enabled) }
+                scope.launch { GlucoRitm.settings.setDiagnosticLoggingEnabled(enabled) }
             }
             Text(
                 stringResource(R.string.log_enable_desc),

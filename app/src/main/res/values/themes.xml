@@ -2,13 +2,13 @@
 <resources>
     <!-- AppCompat base so AppCompatActivity + per-app locales work; the UI itself is Compose
          (Material 3), so this only supplies the window background before Compose draws. -->
-    <style name="Theme.LibreCR" parent="Theme.AppCompat.DayNight.NoActionBar">
+    <style name="Theme.GlucoRitm" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="android:windowBackground">?android:attr/colorBackground</item>
     </style>
 
     <!-- Standby must not inherit the dark app surface (#0E1514): on OLED that would keep
          the entire display lit. This theme also covers the window before Compose renders. -->
-    <style name="Theme.LibreCR.Standby" parent="Theme.AppCompat.NoActionBar">
+    <style name="Theme.GlucoRitm.Standby" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@color/standby_black</item>
         <item name="android:colorBackground">@color/standby_black</item>
         <item name="android:windowIsTranslucent">false</item>

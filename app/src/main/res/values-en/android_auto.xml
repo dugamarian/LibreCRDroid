@@ -6,7 +6,7 @@
     <string name="auto_notification_disabled">Disabled</string>
     <string name="auto_notification_connected">Android Auto connected</string>
     <string name="auto_notification_waiting">Will appear when Android Auto connects</string>
-    <string name="auto_notification_permission">Allow LibreCRDroid notifications to show the card.</string>
+    <string name="auto_notification_permission">Allow GlucoRitm notifications to show the card.</string>
     <string name="auto_notification_system_settings">Notification settings</string>
     <string name="auto_notification_setup">Enable in Android Auto</string>
     <string name="auto_notification_sideload">For a manually installed APK: in Android Auto settings on the phone, tap Version 10 times to enable developer mode. Open Developer settings from the ⋮ menu and enable Unknown sources. Android’s permission to install APKs is a separate setting.</string>

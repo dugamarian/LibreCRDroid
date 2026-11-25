@@ -24,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.CloudSettings
 import re.abbot.librecr.app.libreview.CloudStatus
@@ -40,7 +40,7 @@ import java.util.Locale
 fun CloudUploadScreen(modifier: Modifier = Modifier) {
     val appSettings = LocalAppSettings.current
     val scope = rememberCoroutineScope()
-    val status by LibreCR.uploader.status.collectAsState()
+    val status by GlucoRitm.uploader.status.collectAsState()
 
     var enabled by rememberSaveable(appSettings.cloud.uploadEnabled) {
         mutableStateOf(appSettings.cloud.uploadEnabled)
@@ -64,14 +64,14 @@ fun CloudUploadScreen(modifier: Modifier = Modifier) {
         SectionCard(stringResource(R.string.title_cloud)) {
             SettingsSwitchRow(stringResource(R.string.cloud_enable), enabled) { value ->
                 enabled = value
-                scope.launch { LibreCR.settings.setCloudUploadEnabled(value) }
+                scope.launch { GlucoRitm.settings.setCloudUploadEnabled(value) }
             }
             OutlinedTextField(
                 value = email,
                 onValueChange = { value ->
                     email = value
                     scope.launch {
-                        LibreCR.settings.setCloudCredentials(value.trim(), password)
+                        GlucoRitm.settings.setCloudCredentials(value.trim(), password)
                     }
                 },
                 label = { Text(stringResource(R.string.cloud_email)) },
@@ -83,7 +83,7 @@ fun CloudUploadScreen(modifier: Modifier = Modifier) {
                 onValueChange = { value ->
                     password = value
                     scope.launch {
-                        LibreCR.settings.setCloudCredentials(email.trim(), value)
+                        GlucoRitm.settings.setCloudCredentials(email.trim(), value)
                     }
                 },
                 label = { Text(stringResource(R.string.cloud_password)) },
@@ -95,10 +95,10 @@ fun CloudUploadScreen(modifier: Modifier = Modifier) {
             Button(
                 onClick = {
                     scope.launch {
-                        LibreCR.settings.setCloud(CloudSettings(enabled, email.trim(), password))
+                        GlucoRitm.settings.setCloud(CloudSettings(enabled, email.trim(), password))
                         testing = true
                         testMsg = null
-                        val result = LibreCR.uploader.testNow()
+                        val result = GlucoRitm.uploader.testNow()
                         testing = false
                         testMsg = result.fold({ okMsg }, { it.message ?: it.toString() })
                     }

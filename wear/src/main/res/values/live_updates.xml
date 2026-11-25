@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="wear_live_title">LibreCR · glicemie live</string>
+    <string name="wear_live_title">GlucoRitm · glicemie live</string>
     <string name="wear_live_channel">Glicemie live</string>
     <string name="wear_live_delta">Δ %1$s %2$s/min</string>
     <string name="wear_live_pin">Activează Live Updates</string>

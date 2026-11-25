@@ -11,7 +11,7 @@ import androidx.wear.watchface.complications.data.SmallImage
 import androidx.wear.watchface.complications.data.SmallImageComplicationData
 import androidx.wear.watchface.complications.data.SmallImageType
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
@@ -25,7 +25,7 @@ import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 class TrendAboveValueComplicationService : TrackedComplicationDataSourceService() {
     override fun onCreate() {
         super.onCreate()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
     }
 
     override fun getPreviewData(type: ComplicationType): ComplicationData =
@@ -34,17 +34,17 @@ class TrendAboveValueComplicationService : TrackedComplicationDataSourceService(
     override suspend fun onTrackedComplicationRequest(request: ComplicationRequest): ComplicationData {
         // In-memory live value first (instant); DataStore only when the service isn't running (cold).
         // A fresh unavailable live reading shows NA; real sensor errors come from patch-status.
-        val live = LibreCR.manager.glucose.value
-        val appearance = LibreCR.appearance.current()
-        val status = LibreCR.manager.sensorStatus.value
-            ?: if (live == null) LibreCR.store.loadSensorStatus() else null
+        val live = GlucoRitm.manager.glucose.value
+        val appearance = GlucoRitm.appearance.current()
+        val status = GlucoRitm.manager.sensorStatus.value
+            ?: if (live == null) GlucoRitm.store.loadSensorStatus() else null
         val attention = status?.attention ?: Libre3SensorAttention.None
         val sensorError = attention != Libre3SensorAttention.None
         val liveUnavailable = live.isActiveGlucoseUnavailable()
         val reading = when {
             sensorError || liveUnavailable -> null
             live != null -> live.toLastGlucose()
-            else -> LibreCR.store.loadLastGlucose()
+            else -> GlucoRitm.store.loadLastGlucose()
         }
         val unavailable = !sensorError && (liveUnavailable || !GlucoseComplicationRenderer.isFresh(reading))
         // The OS asked us for fresh complication data — i.e. the watch face / AOD is about

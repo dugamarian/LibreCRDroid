@@ -26,7 +26,7 @@ import java.util.Locale
  * channel (zero CPU).
  */
 object BleLog {
-    private const val TAG = "LibreCR"
+    private const val TAG = "GlucoRitm"
     private const val MAX_LINES = 2000
     private const val PUBLISH_INTERVAL_MS = 250L
 

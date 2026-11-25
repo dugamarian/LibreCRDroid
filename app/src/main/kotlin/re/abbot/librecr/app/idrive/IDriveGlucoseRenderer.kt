@@ -47,7 +47,7 @@ internal class IDriveGlucoseRenderer(private val context: Context) {
             val viewportWidth = width / scale
             with(Drawing(canvas)) {
                 circle(31f, 30f, 7f, primary)
-                text("LibreCR", 49f, 38f, 24f, foreground, strong = true)
+                text("GlucoRitm", 49f, 38f, 24f, foreground, strong = true)
                 val reading = RectF(16f, 62f, 308f, 364f)
                 val chartBounds = RectF(324f, 62f, viewportWidth - 16f, 364f)
                 roundRect(reading, 28f, tonalSurface)

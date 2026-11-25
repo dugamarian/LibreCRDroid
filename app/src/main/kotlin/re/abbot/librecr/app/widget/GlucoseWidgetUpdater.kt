@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.stats.GlucoseSample
@@ -53,11 +53,11 @@ object GlucoseWidgetUpdater {
     private data class DisplaySettings(val unit: GlucoseUnit, val targetLow: Int, val targetHigh: Int)
 
     internal fun inputs(): Flow<GlucoseWidgetInput> = combine(
-        LibreCR.store.lastGlucoseFlow,
-        LibreCR.store.sensorStatusFlow,
-        LibreCR.store.sensorWarmupFlow,
-        LibreCR.store.sessionFlow,
-        LibreCR.manager.glucose,
+        GlucoRitm.store.lastGlucoseFlow,
+        GlucoRitm.store.sensorStatusFlow,
+        GlucoRitm.store.sensorWarmupFlow,
+        GlucoRitm.store.sessionFlow,
+        GlucoRitm.manager.glucose,
     ) { reading, status, warmup, session, live ->
         GlucoseWidgetInput(
             reading = reading,
@@ -68,7 +68,7 @@ object GlucoseWidgetUpdater {
         )
     }.distinctUntilChanged()
 
-    private fun displaySettings(): Flow<DisplaySettings> = LibreCR.settings.settingsFlow
+    private fun displaySettings(): Flow<DisplaySettings> = GlucoRitm.settings.settingsFlow
         .map { DisplaySettings(it.unit, it.targetLow, it.targetHigh) }
         .distinctUntilChanged()
 
@@ -76,7 +76,7 @@ object GlucoseWidgetUpdater {
     internal fun models(): Flow<GlucoseWidgetModel> = combine(
         inputs(),
         displaySettings(),
-        LibreCR.store.glucoseHistoryFlow,
+        GlucoRitm.store.glucoseHistoryFlow,
         chartHistory,
     ) { input, settings, recent, history ->
         GlucoseWidgetModel(input, settings.unit, settings.targetLow, settings.targetHigh, history.samples, recent)
@@ -87,7 +87,7 @@ object GlucoseWidgetUpdater {
         if (started) return
         started = true
         val app = context.applicationContext
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             combine(inputs(), displaySettings()) { input, settings -> input to settings }
                 .distinctUntilChanged()
                 .collect { refresh(app) }
@@ -107,7 +107,7 @@ object GlucoseWidgetUpdater {
         }
         scheduleRefresh(app)
         if (ticker?.isActive == true) return
-        ticker = LibreCR.appScope.launch {
+        ticker = GlucoRitm.appScope.launch {
             while (true) {
                 delay(REFRESH_MS)
                 refresh(app)
@@ -149,7 +149,7 @@ object GlucoseWidgetUpdater {
     private suspend fun loadChartHistory() {
         val now = System.currentTimeMillis()
         try {
-            chartHistory.value = ChartHistory(now, LibreCR.history.chartSamples(now - WIDGET_CHART_WINDOW_MS))
+            chartHistory.value = ChartHistory(now, GlucoRitm.history.chartSamples(now - WIDGET_CHART_WINDOW_MS))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -164,7 +164,7 @@ object GlucoseWidgetUpdater {
      */
     private fun publishPreviews(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             try {
                 val installedAt = context.packageManager
                     .getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
@@ -230,9 +230,9 @@ class GlucoseWidgetRefreshReceiver : BroadcastReceiver() {
         if (!GlucoseWidgetUpdater.hasWidgets(context)) return
         val pending = goAsync()
         val app = context.applicationContext
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             try {
-                LibreCR.init(app)
+                GlucoRitm.init(app)
                 withTimeout(8_000L) { GlucoseWidgetUpdater.refresh(app) }
             } finally {
                 pending.finish()

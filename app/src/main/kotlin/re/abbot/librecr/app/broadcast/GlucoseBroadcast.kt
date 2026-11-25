@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.data.GlucoseBroadcastSettings
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.SensorStateStore
@@ -43,7 +43,7 @@ internal object GlucoseBroadcastContract {
             "RISING_QUICKLY" -> "SingleUp"
             else -> "NOT COMPUTABLE"
         })
-        putExtra(SOURCE, "LibreCRDroid (Libre 3)")
+        putExtra(SOURCE, "GlucoRitm (Libre 3)")
         putExtra(SENDER, "re.abbot.librecr.app")
         putExtra(DISPLAY_UNITS, if (unit == GlucoseUnit.MG_DL) "mg/dl" else "mmol")
         putExtra(LIFE_COUNT, reading.lifeCount)
@@ -99,9 +99,9 @@ object GlucoseBroadcast {
         started = true
         val app = context.applicationContext
         val dispatcher = GlucoseBroadcastDispatcher { app.sendBroadcast(it) }
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             combine(
-                LibreCR.settings.settingsFlow.map { it.glucoseBroadcast to it.unit }.distinctUntilChanged(),
+                GlucoRitm.settings.settingsFlow.map { it.glucoseBroadcast to it.unit }.distinctUntilChanged(),
                 GlucoseWidgetUpdater.inputs(),
             ) { (settings, unit), input -> Triple(settings, unit, input) }
                 .collect { (settings, unit, input) ->

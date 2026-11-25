@@ -28,7 +28,7 @@ import java.util.Locale
  * watch, where the BLE-callback path logs dozens of lines per glucose minute.
  */
 object BleLog {
-    private const val TAG = "LibreCR"
+    private const val TAG = "GlucoRitm"
     private const val MAX_LINES = 2000
     private const val PUBLISH_INTERVAL_MS = 250L
 

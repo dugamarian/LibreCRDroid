@@ -19,7 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ui.common.LocalAppSettings
 import re.abbot.librecr.app.ui.common.SectionCard
@@ -36,7 +36,7 @@ fun LanguageScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
 
     fun apply(tag: String) {
-        scope.launch { LibreCR.settings.setLanguageTag(tag) }
+        scope.launch { GlucoRitm.settings.setLanguageTag(tag) }
         AppCompatDelegate.setApplicationLocales(
             if (tag.isBlank()) LocaleListCompat.getEmptyLocaleList() else LocaleListCompat.forLanguageTags(tag),
         )

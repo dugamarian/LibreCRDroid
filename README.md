@@ -1,4 +1,4 @@
-# LibreCRDroid
+# GlucoRitm
 
 > **⚠️ WARNING — for testing and research only**
 > This application is not a certified medical device. Do not make medical
@@ -147,7 +147,7 @@ and tap **Save recipients**. Package-targeted broadcasts also support receivers
 declared in the recipient's manifest on Android 8+. Without a destination package,
 receivers should register dynamically; on Android 13+ they must be exported to
 receive broadcasts from another app. No receiver permission is imposed, and no
-new LibreCRDroid inbound receiver, polling, cloud connection or service is needed.
+new GlucoRitm inbound receiver, polling, cloud connection or service is needed.
 
 Only valid readings less than six minutes old are sent. Current unavailable/error
 states suppress transmission of cached numbers. Repeated store/status updates
@@ -167,11 +167,11 @@ The following extras use the prefix `com.eveningoutpost.dexdrip.Extras.`:
 | `Time` | `Long` | Original stored reading timestamp, Unix epoch milliseconds |
 | `BgSlope` | `Double`, optional | Delta in mg/dL **per millisecond**, stored per-minute delta ÷ 60,000 |
 | `BgSlopeName` | `String` | `SingleDown`, `FortyFiveDown`, `Flat`, `FortyFiveUp`, `SingleUp`, or `NOT COMPUTABLE` |
-| `SourceDesc` | `String` | `LibreCRDroid (Libre 3)` |
+| `SourceDesc` | `String` | `GlucoRitm (Libre 3)` |
 | `Sender` | `String` | `re.abbot.librecr.app` |
 | `Display.Units` | `String` | Preferred display unit: `mg/dl` or `mmol` |
 
-LibreCRDroid also includes `re.abbot.librecr.app.Extras.LifeCount` (`Int`, sensor
+GlucoRitm also includes `re.abbot.librecr.app.Extras.LifeCount` (`Int`, sensor
 minute counter), `.Trend` (`String`, original Libre trend name) and
 `.DeltaMgDlPerMinute` (`Double`, optional). Missing or non-finite deltas are
 omitted. Raw glucose, noise and sensor battery values are not fabricated.
@@ -183,9 +183,9 @@ Slope units and names follow the upstream
 An experimental dedicated glucose page is available for NBT/NBT Evo Connected Apps.
 Install the official [AAIdrive](https://github.com/BimmerGestalt/AAIdrive/releases)
 on the same phone and first confirm its BMW/MINI connection works. Enable
-**Settings → BMW iDrive → Dedicated iDrive screen** in LibreCRDroid (off by default).
-Open AAIdrive, check for LibreCRDroid under **Addons**, then reconnect Connected Apps
-if the phone was already connected during installation. **LibreCR · Glucose**
+**Settings → BMW iDrive → Dedicated iDrive screen** in GlucoRitm (off by default).
+Open AAIdrive, check for GlucoRitm under **Addons**, then reconnect Connected Apps
+if the phone was already connected during installation. **GlucoRitm · Glucose**
 (localized to the app language) opens automatically once its first presentation is ready.
 It opens once per connection; reading updates and transport retries do not take focus
 back after you leave the page. You can reopen it from the car's Connected Apps /
@@ -211,7 +211,7 @@ without another reading; historical chart points retain their timestamps. Warmup
 unavailable readings and sensor errors also hide the numeric value. Only changed
 visible content transmits an image. Hiding the page stops image transfers.
 
-The LibreCR page no longer binds the AAIdrive map service, displays a map, offers
+The GlucoRitm page no longer binds the AAIdrive map service, displays a map, offers
 navigation/search controls or requires a Google Maps SDK key. The installed
 AAIdrive continues to provide the Connected Apps transport and signed OEM resources.
 The existing AAIdrive installation works; no companion map update is required.
@@ -229,7 +229,7 @@ settings page. Automatic transport retries continue while AAIdrive keeps the add
 bound. Reconnect Connected Apps after installing/updating AAIdrive or fixing missing
 resources.
 
-If LibreCRDroid appears under AAIdrive Addons but not on the dashboard, check the
+If GlucoRitm appears under AAIdrive Addons but not on the dashboard, check the
 status and **Connection diagnostics** in Settings → BMW iDrive. **Screen registered**
 means the startup RPCs completed; it does not acknowledge that the car drew the icon.
 Use **Copy diagnostics** to share the last stage/error. The custom AM launcher has
@@ -253,10 +253,10 @@ or an overlay over navigation, instrument-cluster output, or HUD output.
 
 ## Glucose widgets and Android Auto
 
-Add **LibreCR · Compact glucose** or **LibreCR · Glucose with chart** from the
+Add **GlucoRitm · Compact glucose** or **GlucoRitm · Glucose with chart** from the
 phone's widget picker. No configuration is required; the widgets use the latest
 accepted phone or watch-relayed reading, the unit and the target range from
-Settings. Tap a widget to open LibreCR on hosts that allow launching the phone
+Settings. Tap a widget to open GlucoRitm on hosts that allow launching the phone
 activity.
 
 Both providers share one responsive Material 3 layout set and differ only in their
@@ -289,7 +289,7 @@ widget quality guidelines: built with Glance, responsive to any grid cell down t
 theming — colors are system color resources, so a host can apply its own palette —
 full-bleed bounds, no scrolling, and secondary rows that drop out before the
 reading would be cropped by a small cell or a large font scale.
-If your Android Auto version offers a car-widget picker, check for these LibreCR
+If your Android Auto version offers a car-widget picker, check for these GlucoRitm
 widgets there. Availability, placement next to Maps/Waze and visibility when another
 app is fullscreen are controlled by Android Auto and must be tested on the target
 vehicle. Installing this APK does not enable Google's widget rollout.
@@ -301,7 +301,7 @@ to follow the signal sent by the head unit.
 ### Experimental Android Auto notification
 
 Enable **Settings → Android Auto → Persistent notifications** (off by default).
-Allow LibreCRDroid notifications on the phone and enable message notifications and
+Allow GlucoRitm notifications on the phone and enable message notifications and
 the first message line in Android Auto settings. For a sideloaded APK, Android Auto
 may also require **Developer settings → Unknown sources** for messaging notifications;
 see Google's [testing guide](https://developer.android.com/training/cars/testing).

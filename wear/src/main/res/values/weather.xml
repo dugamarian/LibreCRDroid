@@ -2,7 +2,7 @@
 <resources>
     <string name="complication_date_weather">Dată și vreme</string>
     <string name="complication_date_weather_high_contrast">Dată și vreme (contrast ridicat)</string>
-    <string name="weather_configure_on_phone">Configurează vremea în LibreCR pe telefon, la Setări → Wear OS.</string>
+    <string name="weather_configure_on_phone">Configurează vremea în GlucoRitm pe telefon, la Setări → Wear OS.</string>
     <string name="weather_done">Gata</string>
     <string name="weather_description">^1, %1$s, %2$s</string>
     <string name="weather_stale_description">^1, ultima temperatură disponibilă %1$s, %2$s</string>

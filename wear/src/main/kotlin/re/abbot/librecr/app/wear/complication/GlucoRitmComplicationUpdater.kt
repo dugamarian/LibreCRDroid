@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import re.abbot.librecr.app.log.BleLog
 
-object LibreComplicationUpdater {
+object GlucoRitmComplicationUpdater {
     private val glucoseServices = listOf(
         AgeDeltaComplicationService::class.java,
         TrendAboveValueComplicationService::class.java,
@@ -172,7 +172,7 @@ object LibreComplicationUpdater {
             val lock = updateWakeLock ?: run {
                 val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
                     ?: return
-                powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:ComplicationUpdate")
+                powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GlucoRitm:ComplicationUpdate")
                     .apply { setReferenceCounted(false) }
                     .also { updateWakeLock = it }
             }

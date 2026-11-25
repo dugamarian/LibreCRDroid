@@ -19,7 +19,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.data.ImportedSession
 import re.abbot.librecr.app.log.BleLog
@@ -60,7 +60,7 @@ object AutomaticSensorHandoff {
         this.context = context.applicationContext
         snapshot = loadState()
         coordinator = PhoneRecoveryCoordinator(runtime, snapshot, prefs.getLong("last_sequence", 0L))
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             while (true) {
                 val waitMs = mutex.withLock {
                     val fallback = coordinator.state?.takeIf { it.phase == RecoveryPhase.WATCH_MONITOR && !it.preferWatch }
@@ -104,10 +104,10 @@ object AutomaticSensorHandoff {
         val lifeCount = lastLocalLifeCount
         if (lifeCount < 0) return
         val lostAtMs = System.currentTimeMillis()
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             try {
-                val session = LibreCR.store.loadSession() ?: return@launch
-                if (!enabled || !ownsPhoneConnection || !LibreCR.store.autoConnectEnabled() ||
+                val session = GlucoRitm.store.loadSession() ?: return@launch
+                if (!enabled || !ownsPhoneConnection || !GlucoRitm.store.autoConnectEnabled() ||
                     !session.bleAddress.equals(sensorAddress, true) ||
                     !snapshot?.sensor.equals(sensorAddress, true) || lifeCount != lastLocalLifeCount ||
                     lastLocalPacketMs != null) return@launch
@@ -124,7 +124,7 @@ object AutomaticSensorHandoff {
         val age = System.currentTimeMillis() - receivedAtMs
         if (!message || age !in -30_000L..90_000L) return
         launch {
-            val session = LibreCR.store.loadSession() ?: return@launch
+            val session = GlucoRitm.store.loadSession() ?: return@launch
             if (!session.bleAddress.equals(sensorAddress, true)) return@launch
             if (enabled) {
                 if (lifeCount <= maxOf(priorityRemoteLifeCount, lastLocalLifeCount)) return@launch
@@ -139,7 +139,7 @@ object AutomaticSensorHandoff {
                 }
                 return@launch
             }
-            if (coordinator.state == null && !LibreCR.store.autoConnectEnabled()) {
+            if (coordinator.state == null && !GlucoRitm.store.autoConnectEnabled()) {
                 coordinator.preferWatch(sensorId(session), nodeId)
             }
             coordinator.remotePacket(sensorId(session), nodeId, lifeCount)
@@ -174,16 +174,16 @@ object AutomaticSensorHandoff {
             mutableWatchStandbyReady.value = false
             priorityCheckAtMs = 0L
             priorityRemoteLifeCount = -1
-            if (enabled && hasBluetoothPermissions() && LibreCR.store.loadSession() != null) {
+            if (enabled && hasBluetoothPermissions() && GlucoRitm.store.loadSession() != null) {
                 SensorForegroundService.ensureStandby(context)
-            } else if (!enabled && !LibreCR.store.autoConnectEnabled()) SensorForegroundService.stop(context)
-            val settings = LibreCR.settings.current()
+            } else if (!enabled && !GlucoRitm.store.autoConnectEnabled()) SensorForegroundService.stop(context)
+            val settings = GlucoRitm.settings.current()
             val state = coordinator.state
             if (state != null && settings.selectedWearNodeId.isNotBlank() && settings.selectedWearNodeId != state.nodeId) {
                 coordinator.cancel()
             }
-            if (coordinator.state == null && LibreCR.store.watchTakeoverFlow.first()) {
-                val session = LibreCR.store.loadSession() ?: return@launch
+            if (coordinator.state == null && GlucoRitm.store.watchTakeoverFlow.first()) {
+                val session = GlucoRitm.store.loadSession() ?: return@launch
                 coordinator.preferWatch(sensorId(session), settings.selectedWearNodeId)
             }
             coordinator.tick()
@@ -193,7 +193,7 @@ object AutomaticSensorHandoff {
     }
 
     suspend fun watchHandoffStarted() = mutex.withLock {
-        val session = LibreCR.store.loadSession() ?: return@withLock
+        val session = GlucoRitm.store.loadSession() ?: return@withLock
         coordinator.preferWatch(sensorId(session), resolveWatchNode())
         if (enabled) reconcilePhonePriority()
         updateMonitor()
@@ -211,7 +211,7 @@ object AutomaticSensorHandoff {
     suspend fun takePhoneManually(): Boolean = mutex.withLock {
         disableAutomaticForManualRoute()
         if (!hasBluetoothPermissions()) return@withLock false
-        val session = LibreCR.store.loadSession() ?: return@withLock false
+        val session = GlucoRitm.store.loadSession() ?: return@withLock false
         val node = resolveWatchNode()
         coordinator.cancel()
         val started = coordinator.requestPhone(sensorId(session), node, manual = true)
@@ -224,10 +224,10 @@ object AutomaticSensorHandoff {
 
     fun onRequest(nodeId: String, path: String, data: ByteArray): Task<ByteArray>? {
         if (path != AutomaticHandoff.REQUEST_PHONE && path != RecoveryPolicy.STATUS) return null
-        return handoffTask(LibreCR.appScope) {
+        return handoffTask(GlucoRitm.appScope) {
             if (path == RecoveryPolicy.STATUS) {
                 if (!WearDataSync.acceptsSourceNode(nodeId)) return@handoffTask handoffReply(false)
-                val session = LibreCR.store.loadSession() ?: return@handoffTask handoffReply(false)
+                val session = GlucoRitm.store.loadSession() ?: return@handoffTask handoffReply(false)
                 val request = JSONObject(String(data, Charsets.UTF_8))
                 if (!session.bleAddress.equals(request.optString("bleAddress"), true)) return@handoffTask handoffReply(false)
                 val current = snapshot
@@ -237,14 +237,14 @@ object AutomaticSensorHandoff {
                         SystemClock.elapsedRealtime() < current.deadlineMs &&
                         lastLocalLifeCount > current.confirmationAfterLifeCount)
                 return@handoffTask handoffReply(true).put("bleAddress", session.bleAddress)
-                    .put("active", confirmedTrialPacket && LibreCR.manager.state.value == ConnectionState.STREAMING && age < RecoveryPolicy.SILENCE_MS)
+                    .put("active", confirmedTrialPacket && GlucoRitm.manager.state.value == ConnectionState.STREAMING && age < RecoveryPolicy.SILENCE_MS)
                     .put("lastLifeCount", lastLocalLifeCount)
                     .put("packetAgeMs", age).put("preferWatch", current?.preferWatch == true).put("claimRemainingMs", if (current?.phase == RecoveryPhase.PHONE_CONNECTING)
                         (current.claimUntilMs - SystemClock.elapsedRealtime()).coerceIn(0, RecoveryPolicy.FIRST_PACKET_MS) else 0L)
             }
             mutex.withLock {
                 if (!WearDataSync.acceptsSourceNode(nodeId)) return@withLock handoffReply(false)
-                val session = LibreCR.store.loadSession() ?: return@withLock handoffReply(false)
+                val session = GlucoRitm.store.loadSession() ?: return@withLock handoffReply(false)
                 val json = JSONObject(String(data, Charsets.UTF_8))
                 if (json.optString("bleAddress").isNotBlank() && !session.bleAddress.equals(json.optString("bleAddress"), true)) {
                     return@withLock handoffReply(false)
@@ -268,10 +268,10 @@ object AutomaticSensorHandoff {
         }
     }
 
-    private fun launch(block: suspend () -> Unit) { LibreCR.appScope.launch { safely(block) } }
+    private fun launch(block: suspend () -> Unit) { GlucoRitm.appScope.launch { safely(block) } }
     private suspend fun safely(block: suspend () -> Unit) {
         try { mutex.withLock {
-            val session = LibreCR.store.loadSession()
+            val session = GlucoRitm.store.loadSession()
             if (coordinator.state != null && (session == null || coordinator.state?.sensor != sensorId(session))) coordinator.cancel()
             block()
             retryAfterMs = 0L
@@ -292,7 +292,7 @@ object AutomaticSensorHandoff {
         mutableWatchStandbyReady.value = false
         prefs.edit().putBoolean("phonePriorityOptIn", false).commit()
         coordinator.configure(false)
-        LibreCR.settings.setAutomaticSensorHandoffEnabled(false)
+        GlucoRitm.settings.setAutomaticSensorHandoffEnabled(false)
     }
 
     private suspend fun reconcilePhonePriority(watchCollecting: Boolean = false, reclaimWatch: Boolean = false) {
@@ -301,7 +301,7 @@ object AutomaticSensorHandoff {
         if (coordinator.state?.phoneReturnTrial == true && !reclaimWatch && !watchCollecting) return
         if (!watchCollecting && !reclaimWatch && SystemClock.elapsedRealtime() < priorityCheckAtMs) return
         priorityCheckAtMs = SystemClock.elapsedRealtime() + PhonePriorityPolicy.ARM_RETRY_MS
-        val session = LibreCR.store.loadSession() ?: return
+        val session = GlucoRitm.store.loadSession() ?: return
         val node = resolveWatchNode()
         val nearby = node.isNotBlank() && nearbyHandoffNode(context, node)
         var watchOwns = watchCollecting
@@ -314,7 +314,7 @@ object AutomaticSensorHandoff {
             if (health.healthy || health.claimActive) return
         }
         if (nearby && (armedWatchId != node || watchCollecting)) {
-            val key = LibreCR.store.loadCachedPhase5RawKey()
+            val key = GlucoRitm.store.loadCachedPhase5RawKey()
             val response = rpc(node, PhonePriorityPolicy.ARM_WATCH, JSONObject()
                 .put("session", session.copy(phase5RawKey = key).toJson()))
             // An older watch, or a denied background service start, must never be treated as ready.
@@ -334,11 +334,11 @@ object AutomaticSensorHandoff {
             return
         }
         coordinator.preferPhone(sensorId(session), node, watchCollecting = watchOwns,
-            phoneAlreadyRunning = LibreCR.manager.isRunning)
+            phoneAlreadyRunning = GlucoRitm.manager.isRunning)
     }
 
     private suspend fun resolveWatchNode(): String {
-        val selected = LibreCR.settings.current().selectedWearNodeId
+        val selected = GlucoRitm.settings.current().selectedWearNodeId
         if (selected.isNotBlank()) return selected
         snapshot?.nodeId?.takeIf { it.isNotBlank() }?.let { return it }
         return runCatching { WearDataSync.connectedWearNodes(context).singleOrNull { it.isNearby }?.id.orEmpty() }.getOrDefault("")
@@ -390,7 +390,7 @@ object AutomaticSensorHandoff {
             val releasedLifeCount = if (snapshot?.sensor == releasedWatchSensor) releasedWatchLifeCount else -1
             val response = rpc(nodeId, RecoveryPolicy.STATUS, JSONObject().put("bleAddress", snapshot?.sensor))
                 ?: return ReceiverHealth(lastLifeCount = releasedLifeCount)
-            val session = LibreCR.store.loadSession() ?: return ReceiverHealth()
+            val session = GlucoRitm.store.loadSession() ?: return ReceiverHealth()
             if (!session.bleAddress.equals(response.optString("bleAddress"), true)) return ReceiverHealth()
             return ReceiverHealth(reachable = response.optBoolean("accepted"), active = response.optBoolean("active"),
                 packetAgeMs = response.optLong("packetAgeMs", Long.MAX_VALUE), canStart = response.optBoolean("canStart"),
@@ -413,8 +413,8 @@ object AutomaticSensorHandoff {
         override suspend fun prepareWatch(state: RecoveryState): Boolean =
             rpc(state.nodeId, RecoveryPolicy.PREPARE_WATCH, command(state))?.optBoolean("accepted") == true
         override suspend fun startWatch(state: RecoveryState): Boolean {
-            val session = LibreCR.store.loadSession() ?: return false
-            val key = LibreCR.store.loadCachedPhase5RawKey()
+            val session = GlucoRitm.store.loadSession() ?: return false
+            val key = GlucoRitm.store.loadCachedPhase5RawKey()
             delay(AutomaticHandoff.BLE_RELEASE_DELAY_MS)
             return rpc(state.nodeId, AutomaticHandoff.START_WATCH, command(state)
                 .put("session", session.copy(phase5RawKey = key).toJson())
@@ -422,20 +422,20 @@ object AutomaticSensorHandoff {
                 ?.optBoolean("accepted") == true
         }
         override suspend fun startPhone(): Boolean {
-            if (LibreCR.manager.state.value == ConnectionState.IDLE) {
+            if (GlucoRitm.manager.state.value == ConnectionState.IDLE) {
                 ReceiverSessionBackup.adopt(snapshot?.nodeId.orEmpty())
             }
-            LibreCR.store.setWatchTakeoverEnabled(false)
-            LibreCR.store.setAutoConnectEnabled(true)
+            GlucoRitm.store.setWatchTakeoverEnabled(false)
+            GlucoRitm.store.setAutoConnectEnabled(true)
             return SensorForegroundService.start(context, allowCandidateFirstPair = true, passiveConnect = snapshot?.preferWatch == true)
         }
         override suspend fun stopPhone(): Boolean {
-            LibreCR.store.setAutoConnectEnabled(false)
-            val stopped = LibreCR.manager.stopAndJoin()
+            GlucoRitm.store.setAutoConnectEnabled(false)
+            val stopped = GlucoRitm.manager.stopAndJoin()
             SensorForegroundService.stop(context)
             return stopped
         }
-        override suspend fun watchOwnsSensor() { LibreCR.store.setWatchTakeoverEnabled(true) }
+        override suspend fun watchOwnsSensor() { GlucoRitm.store.setWatchTakeoverEnabled(true) }
     }
 
     private fun loadState(): RecoveryState? = runCatching {

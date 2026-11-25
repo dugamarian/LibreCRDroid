@@ -5,7 +5,7 @@ import re.abbot.librecr.app.log.BleLog
 
 /**
  * In-memory map of the complication instances the watch face currently displays, per data source.
- * Lets [LibreComplicationUpdater] target exactly those instances instead of broadcasting
+ * Lets [GlucoRitmComplicationUpdater] target exactly those instances instead of broadcasting
  * update-all requests for every service. Activation callbacks are NOT re-delivered after a
  * process restart, so instances are also (re)registered from every onComplicationRequest —
  * until the first host request arrives the map is empty and callers fall back to update-all.

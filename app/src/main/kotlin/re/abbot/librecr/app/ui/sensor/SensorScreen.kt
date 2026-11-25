@@ -38,7 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.ImportedSession
 import re.abbot.librecr.app.libreview.LibreViewAccountClient
@@ -65,8 +65,8 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
     val ctx = LocalContext.current
     val appSettings = LocalAppSettings.current
     val scope = rememberCoroutineScope()
-    val savedSession by LibreCR.store.sessionFlow.collectAsState(initial = null)
-    val watchTakeover by LibreCR.store.watchTakeoverFlow.collectAsState(initial = false)
+    val savedSession by GlucoRitm.store.sessionFlow.collectAsState(initial = null)
+    val watchTakeover by GlucoRitm.store.watchTakeoverFlow.collectAsState(initial = false)
     val watchStandbyReady by AutomaticSensorHandoff.watchStandbyReady.collectAsState()
 
     val accountlessUniqueId = remember { libreCrAccountlessUniqueId(ctx) }
@@ -87,7 +87,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
 
     LaunchedEffect(savedSession?.bleAddress) {
         if (savedSession == null) {
-            LibreCR.store.setWatchTakeoverEnabled(false)
+            GlucoRitm.store.setWatchTakeoverEnabled(false)
             wearMessage = null
             wearError = null
         }
@@ -97,8 +97,8 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
         permLauncher.launch(requiredPermissions())
         scope.launch {
             AutomaticSensorHandoff.cancel(manual = true)
-            LibreCR.store.setAutoConnectEnabled(true)
-            LibreCR.store.setWatchTakeoverEnabled(false)
+            GlucoRitm.store.setAutoConnectEnabled(true)
+            GlucoRitm.store.setWatchTakeoverEnabled(false)
             SensorForegroundService.start(ctx, allowCandidateFirstPair)
         }
     }
@@ -129,10 +129,10 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             AutomaticSensorHandoff.cancel(manual = true)
             if (replaceExistingSession) {
                 SensorForegroundService.stop(ctx)
-                LibreCR.manager.stop()
-                LibreCR.store.clearSession()
+                GlucoRitm.manager.stop()
+                GlucoRitm.store.clearSession()
             }
-            LibreCR.store.saveActivatedSession(
+            GlucoRitm.store.saveActivatedSession(
                 session = session,
                 startsWarmup = result.commandCode == NfcActivationCommandCode.ACTIVATE && result.patchInfo.isStorageState,
             )
@@ -142,14 +142,14 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             when {
                 startOnWatchAfterScan -> {
                     WearDataSync.sendSession(ctx, session, startOnWatch = true)
-                    LibreCR.store.setWatchTakeoverEnabled(true)
+                    GlucoRitm.store.setWatchTakeoverEnabled(true)
                     AutomaticSensorHandoff.watchHandoffStarted()
                     nfcMessage += "; date trimise către ceas pentru conectarea la Libre 3."
                 }
                 connectOnPhoneAfterScan -> {
                     nfcMessage += "; pornesc conexiunea la Libre 3 pe telefon."
                     WearDataSync.sendSession(ctx, session, startOnWatch = false)
-                    LibreCR.store.setWatchTakeoverEnabled(false)
+                    GlucoRitm.store.setWatchTakeoverEnabled(false)
                     startService(allowCandidateFirstPair = true)
                 }
                 else -> WearDataSync.sendSession(ctx, session, startOnWatch = false)
@@ -161,7 +161,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
         val currentReceiverId = Libre3ReceiverID.fromNfcIdentityInput(receiverIdText)
         if (currentReceiverId != null && currentReceiverId.value != defaultReceiverId.value) return true
 
-        val cloud = LibreCR.settings.current().cloud
+        val cloud = GlucoRitm.settings.current().cloud
         if (cloud.email.isBlank() || cloud.password.isBlank()) return true
 
         nfcMessage = "Obțin Account ID din LibreView..."
@@ -215,7 +215,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
                 } else if (scan.activationError != null) {
                     restoreWatchSessionOnFailure?.let {
                         WearDataSync.sendSession(ctx, it, startOnWatch = true)
-                        LibreCR.appScope.launch { AutomaticSensorHandoff.watchHandoffStarted() }
+                        GlucoRitm.appScope.launch { AutomaticSensorHandoff.watchHandoffStarted() }
                     }
                     nfcMessage = null
                     nfcError = "NFC error=0x${"%02x".format(requireNotNull(scan.activationError).errorCode)}"
@@ -225,7 +225,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             }.onFailure {
                 restoreWatchSessionOnFailure?.let { previous ->
                     WearDataSync.sendSession(ctx, previous, startOnWatch = true)
-                    LibreCR.appScope.launch { AutomaticSensorHandoff.watchHandoffStarted() }
+                    GlucoRitm.appScope.launch { AutomaticSensorHandoff.watchHandoffStarted() }
                 }
                 nfcMessage = null
                 nfcError = it.message ?: it.toString()
@@ -244,8 +244,8 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
                 nfcError = "Account ID invalid. Folosește număr decimal sau 4 bytes hex little-endian."
                 return@launch
             }
-            LibreCR.store.setAutoConnectEnabled(false)
-            LibreCR.manager.stop()
+            GlucoRitm.store.setAutoConnectEnabled(false)
+            GlucoRitm.manager.stop()
             SensorForegroundService.stop(ctx)
             val watchHadControl = WearDataSync.requestStopAndWait(ctx, NEW_SENSOR_WATCH_STOP_TIMEOUT_MS)
             if (watchHadControl) {
@@ -287,21 +287,21 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
         // start watch) takes several seconds, and it must NOT be cancelled when the user leaves this
         // screen. Commit the takeover intent up front so the switch flips on immediately and stays on
         // (it is driven by the persisted watchTakeoverFlow); revert only if the phone fails to release.
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             // A manual route is an explicit override of the phone-priority policy.
             AutomaticSensorHandoff.cancel(manual = true)
-            LibreCR.store.setWatchTakeoverEnabled(true)
+            GlucoRitm.store.setWatchTakeoverEnabled(true)
             wearBusy = true
             wearError = null
             wearMessage = "Opresc orice conexiune veche pe ceas..."
             WearDataSync.requestStopStatusAndWait(appCtx, HANDOFF_WATCH_STOP_TIMEOUT_MS)
-            LibreCR.store.setAutoConnectEnabled(false)
+            GlucoRitm.store.setAutoConnectEnabled(false)
             wearMessage = "Telefonul cedează conexiunea BLE cu Libre 3..."
-            val stopped = LibreCR.manager.stopAndJoin()
+            val stopped = GlucoRitm.manager.stopAndJoin()
             SensorForegroundService.stop(appCtx)
             if (!stopped) {
                 wearBusy = false
-                LibreCR.store.setWatchTakeoverEnabled(false)
+                GlucoRitm.store.setWatchTakeoverEnabled(false)
                 wearMessage = null
                 wearError = "Telefonul nu a confirmat închiderea completă a sesiunii BLE."
                 return@launch
@@ -313,7 +313,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
             // rotate anymore). The watch resumes via the cheap cached handshake — it cannot finish a
             // full first-pair derivation before the sensor's mid-handshake patience runs out. Both
             // devices share the same receiver certificate, so the sensor sees the same identity.
-            val handoffKey = runCatching { LibreCR.store.loadCachedPhase5RawKey() }.getOrNull()
+            val handoffKey = runCatching { GlucoRitm.store.loadCachedPhase5RawKey() }.getOrNull()
             WearDataSync.sendSession(appCtx, session.copy(phase5RawKey = handoffKey), startOnWatch = true)
             AutomaticSensorHandoff.watchHandoffStarted()
             wearMessage = "Ceasul preia conexiunea la Libre 3. Poți închide acest ecran."
@@ -324,7 +324,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
     fun returnToPhone() {
         if (savedSession == null || wearBusy) return
         permLauncher.launch(requiredPermissions())
-        LibreCR.appScope.launch {
+        GlucoRitm.appScope.launch {
             wearBusy = true
             wearError = null
             wearMessage = "Telefonul verifică ceasul și încearcă preluarea senzorului..."
@@ -386,7 +386,7 @@ fun SensorScreen(nfcReader: AndroidLibre3NfcReader, modifier: Modifier = Modifie
                 appSettings.automaticSensorHandoffEnabled,
             ) { enabled ->
                 if (enabled) permLauncher.launch(requiredPermissions())
-                scope.launch { LibreCR.settings.setAutomaticSensorHandoffEnabled(enabled) }
+                scope.launch { GlucoRitm.settings.setAutomaticSensorHandoffEnabled(enabled) }
             }
             Text(stringResource(R.string.automatic_handoff_description))
             if (appSettings.automaticSensorHandoffEnabled && !watchStandbyReady) {
@@ -417,7 +417,7 @@ private fun SensorConnectionCard(
     val canScan = nfcReader.isEnabled && !scanning
     SectionCard("Conectare Libre 3") {
         Text(
-            "LibreCRDroid se conectează direct la senzorul FreeStyle Libre 3 prin Bluetooth.",
+            "GlucoRitm se conectează direct la senzorul FreeStyle Libre 3 prin Bluetooth.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

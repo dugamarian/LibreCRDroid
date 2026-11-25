@@ -23,7 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.alarm.GlucoseAlarmManager
 import re.abbot.librecr.app.alarm.StalenessWatchdog
@@ -42,7 +42,7 @@ fun AlarmsScreen(modifier: Modifier = Modifier) {
 
     fun persist(next: AlarmSettings) {
         a = next
-        scope.launch { LibreCR.settings.setAlarms(next) }
+        scope.launch { GlucoRitm.settings.setAlarms(next) }
     }
 
     Column(

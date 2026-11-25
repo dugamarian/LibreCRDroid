@@ -6,7 +6,7 @@
     <string name="nav_home">Accueil</string>
     <string name="nav_stats">Statistiques</string>
     <string name="nav_settings">Réglages</string>
-    <string name="title_app">LibreCR</string>
+    <string name="title_app">GlucoRitm</string>
     <string name="title_sensor">Connexion Libre 3</string>
     <string name="title_alarms">Alarmes</string>
     <string name="title_live_updates">Live Updates</string>
@@ -51,7 +51,7 @@
     <string name="standby_no_reading">aucune mesure</string>
     <string name="standby_title">StandBy</string>
     <string name="standby_enable">Activer StandBy</string>
-    <string name="standby_desc">Sur un chargeur sans fil, l’écran reste allumé en mode paysage et affiche l’heure et la glycémie. L’affichage passe automatiquement au rouge quand la lumière ambiante est faible.</string>
+    <string name="standby_desc">Placez le téléphone sur le côté, en mode paysage, sur un chargeur sans fil. L’écran reste allumé et affiche l’heure et la glycémie. L’affichage passe automatiquement au rouge quand la lumière ambiante est faible.</string>
     <string name="standby_hours_desc">Ces horaires déterminent quand l’affichage passe au rouge si la luminosité ambiante ne peut pas être mesurée. La plage peut passer minuit.</string>
     <string name="standby_next_alarm">Prochaine alarme : %1$s</string>
     <string name="standby_battery_charging">Batterie %1$s, en charge</string>
@@ -174,7 +174,7 @@
     <string name="live_updates_promoted_blocked">Le chip promu est désactivé dans les réglages Android.</string>
     <string name="live_updates_system_settings">Réglages Android Live Updates</string>
     <string name="live_updates_home_screen">Live Updates sur l’écran d’accueil</string>
-    <string name="live_updates_home_screen_desc">Quand cette option est désactivée, LibreCR ne demande plus la promotion Live Update ; Android peut encore afficher la notification normale sur l’écran verrouillé.</string>
+    <string name="live_updates_home_screen_desc">Quand cette option est désactivée, GlucoRitm ne demande plus la promotion Live Update ; Android peut encore afficher la notification normale sur l’écran verrouillé.</string>
     <string name="live_updates_chip_section">Chip</string>
     <string name="live_updates_chip_preview">Exemple : %1$s</string>
     <string name="live_updates_status_chip">Chip de statut</string>
@@ -337,7 +337,7 @@
     <string name="agreement_title">Accord d\'utilisation</string>
     <string name="agreement_accept">J\'accepte</string>
     <string name="agreement_exit">Quitter</string>
-    <string name="agreement_body">LibreCRDroid est un logiciel expérimental open-source qui lit un capteur FreeStyle Libre 3 via Bluetooth. Ce N\'est PAS un dispositif médical et il N\'est ni approuvé ni certifié pour un usage médical.\n\n• Ne prenez aucune décision de traitement, de dosage ou médicale sur la base de cette application. Confirmez toujours avec un lecteur de glycémie capillaire et suivez les conseils de votre professionnel de santé.\n\n• L\'application fait de l\'ingénierie inverse sur un protocole non documenté et peut cesser de fonctionner, afficher de mauvaises valeurs, manquer des mesures ou échouer sans préavis.\n\n• L\'utilisation de l\'application peut affecter le capteur, y compris sa batterie et sa durée de vie ; les développeurs ne sont pas responsables de la perte ou du dysfonctionnement du capteur.\n\n• Ce projet n\'est ni affilié, ni approuvé, ni soutenu par Abbott. FreeStyle et Libre sont des marques de leurs propriétaires respectifs.\n\n• Le logiciel est fourni « tel quel », sans aucune garantie. Vous l\'utilisez à vos propres risques. Les développeurs déclinent toute responsabilité en cas de préjudice, blessure ou perte résultant de son utilisation.\n\nEn appuyant sur « J\'accepte », vous confirmez avoir lu et compris cet accord et vous assumez l\'entière responsabilité de l\'utilisation de l\'application.</string>
+    <string name="agreement_body">GlucoRitm est un logiciel expérimental open-source qui lit un capteur FreeStyle Libre 3 via Bluetooth. Ce N\'est PAS un dispositif médical et il N\'est ni approuvé ni certifié pour un usage médical.\n\n• Ne prenez aucune décision de traitement, de dosage ou médicale sur la base de cette application. Confirmez toujours avec un lecteur de glycémie capillaire et suivez les conseils de votre professionnel de santé.\n\n• L\'application fait de l\'ingénierie inverse sur un protocole non documenté et peut cesser de fonctionner, afficher de mauvaises valeurs, manquer des mesures ou échouer sans préavis.\n\n• L\'utilisation de l\'application peut affecter le capteur, y compris sa batterie et sa durée de vie ; les développeurs ne sont pas responsables de la perte ou du dysfonctionnement du capteur.\n\n• Ce projet n\'est ni affilié, ni approuvé, ni soutenu par Abbott. FreeStyle et Libre sont des marques de leurs propriétaires respectifs.\n\n• Le logiciel est fourni « tel quel », sans aucune garantie. Vous l\'utilisez à vos propres risques. Les développeurs déclinent toute responsabilité en cas de préjudice, blessure ou perte résultant de son utilisation.\n\nEn appuyant sur « J\'accepte », vous confirmez avoir lu et compris cet accord et vous assumez l\'entière responsabilité de l\'utilisation de l\'application.</string>
     <string name="automatic_handoff_title">Téléphone prioritaire, montre de secours</string>
     <string name="automatic_handoff_enabled">Activer la reprise automatique sur la montre</string>
     <string name="automatic_handoff_description">Le téléphone garde la connexion au capteur. La montre reste prête en arrière-plan avec une notification permanente et tente la reprise lorsque le téléphone disparaît ou ne transmet plus de mesures. Quand le téléphone revient à proximité, la montre lui rend la connexion. Le délai dépend de la disponibilité Bluetooth du capteur et de Wear OS. La désactivation conserve le collecteur actuel ; le changement manuel de route désactive le mode automatique.</string>

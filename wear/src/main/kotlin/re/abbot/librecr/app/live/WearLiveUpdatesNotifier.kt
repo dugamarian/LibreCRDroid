@@ -27,7 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.GlucoseAgeAlarm
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.WEAR_GLUCOSE_DISPLAY_HOLD_MS
@@ -95,12 +95,12 @@ object WearLiveUpdatesNotifier {
     }
 
     private fun contentFlow(): Flow<WearLiveUpdateContent> = combine(
-        LibreCR.manager.glucose,
-        LibreCR.store.lastGlucoseFlow.onStart { emit(synchronized(this@WearLiveUpdatesNotifier) { latest.persisted }) },
-        LibreCR.appearance.settingsFlow.map { it.unit }.distinctUntilChanged()
-            .onStart { emit(LibreCR.appearance.cachedOrDefault().unit) },
-        LibreCR.manager.sensorStatus,
-        LibreCR.store.sessionFlow.map { it?.warmupMinutes ?: SensorLifecycle.DEFAULT_WARMUP_DURATION_MINUTES }
+        GlucoRitm.manager.glucose,
+        GlucoRitm.store.lastGlucoseFlow.onStart { emit(synchronized(this@WearLiveUpdatesNotifier) { latest.persisted }) },
+        GlucoRitm.appearance.settingsFlow.map { it.unit }.distinctUntilChanged()
+            .onStart { emit(GlucoRitm.appearance.cachedOrDefault().unit) },
+        GlucoRitm.manager.sensorStatus,
+        GlucoRitm.store.sessionFlow.map { it?.warmupMinutes ?: SensorLifecycle.DEFAULT_WARMUP_DURATION_MINUTES }
             .distinctUntilChanged().onStart { emit(synchronized(this@WearLiveUpdatesNotifier) { latest.warmupMinutes }) },
     ) { live, persisted, unit, status, warmupMinutes ->
         Snapshot(live, persisted, unit, status, warmupMinutes)
@@ -116,9 +116,9 @@ object WearLiveUpdatesNotifier {
     }
 
     private fun currentContent(nowMs: Long): WearLiveUpdateContent = latest.copy(
-        live = LibreCR.manager.glucose.value,
-        unit = LibreCR.appearance.cachedOrDefault().unit,
-        sensorStatus = LibreCR.manager.sensorStatus.value,
+        live = GlucoRitm.manager.glucose.value,
+        unit = GlucoRitm.appearance.cachedOrDefault().unit,
+        sensorStatus = GlucoRitm.manager.sensorStatus.value,
     ).content(nowMs)
 
     @Synchronized
@@ -369,7 +369,7 @@ class WearLiveUpdatesReceiver : BroadcastReceiver() {
             }
             else -> return
         }
-        LibreCR.init(context)
+        GlucoRitm.init(context)
         WearLiveUpdatesNotifier.setEnabled(context, enabled)
     }
 }

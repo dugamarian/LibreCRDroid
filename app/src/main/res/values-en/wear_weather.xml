@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="wear_weather_title">Weather on watch</string>
-    <string name="wear_weather_explanation">Your phone fetches weather from Open-Meteo and syncs it to LibreCR Wear.</string>
+    <string name="wear_weather_explanation">Your phone fetches weather from Open-Meteo and syncs it to GlucoRitm Wear.</string>
     <string name="wear_weather_phone_location">Phone location</string>
     <string name="wear_weather_use_location">Use phone location</string>
     <string name="wear_weather_refresh">Refresh now</string>

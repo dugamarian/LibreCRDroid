@@ -17,7 +17,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.wear.WearDataSync
@@ -36,19 +36,19 @@ class WearLiveUpdatesNotificationTest {
                 "pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS",
             ).close()
         }
-        LibreCR.init(context)
+        GlucoRitm.init(context)
         runBlocking {
-            LibreCR.store.clearSession()
-            LibreCR.appearance.save(WearAppearanceSettings())
+            GlucoRitm.store.clearSession()
+            GlucoRitm.appearance.save(WearAppearanceSettings())
         }
-        LibreCR.manager.clearSensorStatus()
+        GlucoRitm.manager.clearSensorStatus()
         WearLiveUpdatesNotifier.setEnabled(context, true)
         val manager = context.getSystemService(NotificationManager::class.java)
         val now = System.currentTimeMillis()
         // The first minute label is due 12 s later (70 s after the sample), with no new packet.
-        val firstLifeCount = maxOf(20_000, (LibreCR.manager.glucose.value?.lifeCount ?: 0) + 1)
+        val firstLifeCount = maxOf(20_000, (GlucoRitm.manager.glucose.value?.lifeCount ?: 0) + 1)
         val first = SensorStateStore.LastGlucose(firstLifeCount, 120, "RISING", now - 58_000L, 2.0)
-        LibreCR.manager.acceptRemoteGlucose(first)
+        GlucoRitm.manager.acceptRemoteGlucose(first)
         await { manager.activeNotifications.any { it.id == 1 && it.notification.title() == "↗ 120 Δ +2" } }
         val notification = manager.activeNotifications.single { it.id == 1 }.notification
         assertNotNull(notification.smallIcon)
@@ -93,14 +93,14 @@ class WearLiveUpdatesNotificationTest {
         notification.actions.single().actionIntent.send()
         await { !WearLiveUpdatesNotifier.enabled.value && manager.activeNotifications.none { it.id == 1 } }
         assertFalse(context.getSharedPreferences("wear_live_updates", Context.MODE_PRIVATE).getBoolean("enabled", true))
-        LibreCR.manager.acceptRemoteGlucose(first.copy(lifeCount = first.lifeCount + 1, mgDL = 122))
+        GlucoRitm.manager.acceptRemoteGlucose(first.copy(lifeCount = first.lifeCount + 1, mgDL = 122))
         Thread.sleep(250L)
         assertTrue(manager.activeNotifications.none { it.id == 1 })
 
         WearLiveUpdatesNotifier.setEnabled(context, true)
         await { manager.activeNotifications.any { it.id == 1 && it.notification.title() == "↗ 122 Δ +2" } }
         // A non-numeric live packet must hide the cached valid reading immediately.
-        LibreCR.manager.acceptRemoteGlucoseUnavailable(WearDataSync.GlucoseUnavailable(
+        GlucoRitm.manager.acceptRemoteGlucoseUnavailable(WearDataSync.GlucoseUnavailable(
             lifeCount = first.lifeCount + 2, trend = "UNKNOWN", receivedAtMs = now, reason = "test", detail = "",
         ))
         await { manager.activeNotifications.any { it.id == 1 && it.notification.title() == "NA" } }
@@ -117,12 +117,12 @@ class WearLiveUpdatesNotificationTest {
         assertTrue(naStatus.getText(context, naNow).toString().startsWith("NA · "))
         assertFalse(naStatus.getText(context, naNow).toString() ==
             naStatus.getText(context, naNow + 65_000L).toString())
-        LibreCR.manager.acceptRemoteGlucose(first.copy(lifeCount = first.lifeCount + 3, receivedAtMs = now - 330_001L))
+        GlucoRitm.manager.acceptRemoteGlucose(first.copy(lifeCount = first.lifeCount + 3, receivedAtMs = now - 330_001L))
         Thread.sleep(250L)
         assertTrue(manager.activeNotifications.none { it.id == 1 })
 
         // Leave a fresh sample for manual inspection of the round-screen notification and icon.
-        LibreCR.manager.acceptRemoteGlucose(first.copy(lifeCount = first.lifeCount + 4, receivedAtMs = System.currentTimeMillis()))
+        GlucoRitm.manager.acceptRemoteGlucose(first.copy(lifeCount = first.lifeCount + 4, receivedAtMs = System.currentTimeMillis()))
         await { manager.activeNotifications.any { it.id == 1 } }
         assertEquals(1, manager.activeNotifications.count { it.id == 1 })
     }
@@ -137,20 +137,20 @@ class WearLiveUpdatesNotificationTest {
                 "pm grant ${context.packageName} android.permission.POST_NOTIFICATIONS",
             ).close()
         }
-        LibreCR.init(context)
+        GlucoRitm.init(context)
         runBlocking {
-            LibreCR.store.clearSession()
-            LibreCR.appearance.save(WearAppearanceSettings())
+            GlucoRitm.store.clearSession()
+            GlucoRitm.appearance.save(WearAppearanceSettings())
         }
-        LibreCR.manager.clearSensorStatus()
+        GlucoRitm.manager.clearSensorStatus()
         WearLiveUpdatesNotifier.setEnabled(context, true)
         val manager = context.getSystemService(NotificationManager::class.java)
         val preferences = context.getSharedPreferences("wear_live_updates", Context.MODE_PRIVATE)
-        val lifeCount = maxOf(20_000, (LibreCR.manager.glucose.value?.lifeCount ?: 0) + 1)
+        val lifeCount = maxOf(20_000, (GlucoRitm.manager.glucose.value?.lifeCount ?: 0) + 1)
         val old = SensorStateStore.LastGlucose(lifeCount, 120, "RISING", System.currentTimeMillis() - 327_000L, 2.0)
         val probeId = 9_001
         try {
-            LibreCR.manager.acceptRemoteGlucose(old)
+            GlucoRitm.manager.acceptRemoteGlucose(old)
             await { manager.activeNotifications.any { it.id == 1 && it.notification.`when` == old.receivedAtMs } }
             val expiring = manager.activeNotifications.single { it.id == 1 }.notification
             assertTrue(expiring.timeoutAfter in 1L..3_000L)
@@ -175,7 +175,7 @@ class WearLiveUpdatesNotificationTest {
 
             // Recovery must repin without any user action or Bluetooth/service restart.
             val recovered = old.copy(lifeCount = lifeCount + 1, mgDL = 125, receivedAtMs = System.currentTimeMillis())
-            LibreCR.manager.acceptRemoteGlucose(recovered)
+            GlucoRitm.manager.acceptRemoteGlucose(recovered)
             await { manager.activeNotifications.any { it.id == 1 && it.notification.title() == "↗ 125 Δ +2" } }
             val current = manager.activeNotifications.single { it.id == 1 }.notification
             val currentDismissal = requireNotNull(current.deleteIntent)
@@ -194,7 +194,7 @@ class WearLiveUpdatesNotificationTest {
             currentDismissal.send()
             await { !WearLiveUpdatesNotifier.enabled.value && manager.activeNotifications.none { it.id == 1 } }
             assertFalse(preferences.getBoolean("enabled", true))
-            LibreCR.manager.acceptRemoteGlucose(recovered.copy(lifeCount = lifeCount + 2, mgDL = 126))
+            GlucoRitm.manager.acceptRemoteGlucose(recovered.copy(lifeCount = lifeCount + 2, mgDL = 126))
             Thread.sleep(250L)
             assertTrue(manager.activeNotifications.none { it.id == 1 })
         } finally {

@@ -13,7 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
 
@@ -40,7 +40,7 @@ object ReceiverRecoveryAlarm {
 
     fun runAwake(context: Context, block: suspend () -> Unit) {
         val lock = context.getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:ReceiverRecovery")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GlucoRitm:ReceiverRecovery")
         lock.acquire(55_000L)
         scope.launch {
             try { withTimeoutOrNull(50_000L) { block() } }
@@ -53,7 +53,7 @@ object ReceiverRecoveryAlarm {
 
     class Receiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            LibreCR.init(context)
+            GlucoRitm.init(context)
             AutomaticSensorHandoff.onRecoveryWakeup()
         }
     }

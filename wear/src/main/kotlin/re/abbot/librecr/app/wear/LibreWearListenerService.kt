@@ -16,7 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.alarm.SensorAttentionNotifier
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.data.ImportedSession
@@ -24,7 +24,7 @@ import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.log.DiagnosticLogSettings
 import re.abbot.librecr.app.log.GlucoseLatencyTracer
 import re.abbot.librecr.app.service.SensorForegroundService
-import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
+import re.abbot.librecr.app.wear.complication.GlucoRitmComplicationUpdater
 import re.abbot.librecr.app.wear.complication.WatchWeather
 import re.abbot.librecr.app.wear.complication.requestWeatherComplicationUpdates
 import re.abbot.librecr.protocol.connection.WearWeather
@@ -34,7 +34,7 @@ class LibreWearListenerService : WearableListenerService() {
 
     override fun onCreate() {
         super.onCreate()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
     }
 
     override fun onDestroy() {
@@ -143,13 +143,13 @@ class LibreWearListenerService : WearableListenerService() {
                 AutomaticSensorHandoff.cancel()
                 val incoming = ImportedSession.fromJson(String(payload))
                 val shouldStart = path == WearDataSync.PATH_START
-                LibreCR.store.saveSession(incoming, preserveCachedKeyWhenKeyless = true)
-                LibreCR.manager.clearSensorStatus()
+                GlucoRitm.store.saveSession(incoming, preserveCachedKeyWhenKeyless = true)
+                GlucoRitm.manager.clearSensorStatus()
                 if (shouldStart) {
-                    LibreCR.store.setAutoConnectEnabled(true)
+                    GlucoRitm.store.setAutoConnectEnabled(true)
                 } else {
-                    LibreCR.store.setAutoConnectEnabled(false)
-                    val stopped = LibreCR.manager.stopAndJoin()
+                    GlucoRitm.store.setAutoConnectEnabled(false)
+                    val stopped = GlucoRitm.manager.stopAndJoin()
                     SensorForegroundService.stop(this@LibreWearListenerService)
                     BleLog.log("wear: provisioning save-only stopped local connection stopped=$stopped")
                 }
@@ -160,7 +160,7 @@ class LibreWearListenerService : WearableListenerService() {
                 if (shouldStart) {
                     // Restart from a clean loop so the (possibly relayed) key in the store is what the
                     // manager loads — a still-running loop would keep its stale in-memory key.
-                    LibreCR.manager.stopAndJoin()
+                    GlucoRitm.manager.stopAndJoin()
                     SensorForegroundService.start(this@LibreWearListenerService, allowCandidateFirstPair = true)
                 }
             }.onFailure {
@@ -173,8 +173,8 @@ class LibreWearListenerService : WearableListenerService() {
         scope.launch {
             runCatching {
                 val settings = WearDataSync.parseAppearance(bytes)
-                LibreCR.appearance.save(settings)
-                LibreComplicationUpdater.requestAll(this@LibreWearListenerService)
+                GlucoRitm.appearance.save(settings)
+                GlucoRitmComplicationUpdater.requestAll(this@LibreWearListenerService)
                 BleLog.log("wear: appearance received from phone via $source")
             }.onFailure {
                 BleLog.log("wear: appearance receive failed: ${it.message ?: it::class.java.simpleName}")
@@ -197,13 +197,13 @@ class LibreWearListenerService : WearableListenerService() {
             runCatching {
                 val reading = WearDataSync.parseGlucose(bytes)
                 val address = JSONObject(String(bytes, Charsets.UTF_8)).optString("bleAddress")
-                val session = LibreCR.store.loadSession()
+                val session = GlucoRitm.store.loadSession()
                 if (address.isNotBlank() && session != null && !session.bleAddress.equals(address, true)) return@runCatching
                 GlucoseLatencyTracer.mark(reading.lifeCount, GlucoseLatencyTracer.Stage.BLE_NOTIFY_RECEIVED, arrivalMs)
                 if (publishLatest) {
                     AutomaticSensorHandoff.onRemotePacket(sourceNodeId, reading.lifeCount, reading.receivedAtMs, source == "message")
-                    LibreCR.manager.acceptRemoteGlucose(reading)
-                    LibreComplicationUpdater.requestGlucose(this@LibreWearListenerService, reading.lifeCount)
+                    GlucoRitm.manager.acceptRemoteGlucose(reading)
+                    GlucoRitmComplicationUpdater.requestGlucose(this@LibreWearListenerService, reading.lifeCount)
                 }
                 BleLog.log(
                     "wear: glucose received from phone via $source ${reading.mgDL} mg/dL " +
@@ -220,10 +220,10 @@ class LibreWearListenerService : WearableListenerService() {
             runCatching {
                 val event = WearDataSync.parseGlucoseUnavailable(bytes)
                 val address = JSONObject(String(bytes, Charsets.UTF_8)).optString("bleAddress")
-                val session = LibreCR.store.loadSession()
+                val session = GlucoRitm.store.loadSession()
                 if (address.isNotBlank() && session != null && !session.bleAddress.equals(address, true)) return@runCatching
                 AutomaticSensorHandoff.onRemotePacket(sourceNodeId, event.lifeCount, event.receivedAtMs, message)
-                LibreCR.manager.acceptRemoteGlucoseUnavailable(event)
+                GlucoRitm.manager.acceptRemoteGlucoseUnavailable(event)
             }.onFailure { BleLog.log("receiver recovery: unavailable packet rejected") }
         }
     }
@@ -234,9 +234,9 @@ class LibreWearListenerService : WearableListenerService() {
                 val status = WearDataSync.parseSensorStatus(bytes)
                 // Publish in memory and queue persistence before notifying/repainting; none of those
                 // live paths waits for DataStore.
-                LibreCR.manager.acceptRemoteSensorStatus(status)
+                GlucoRitm.manager.acceptRemoteSensorStatus(status)
                 SensorAttentionNotifier.onAttentionChanged(this@LibreWearListenerService, status.attention)
-                LibreComplicationUpdater.requestGlucose(this@LibreWearListenerService)
+                GlucoRitmComplicationUpdater.requestGlucose(this@LibreWearListenerService)
                 BleLog.log(
                     "wear: sensor status received via $source errorData=${status.errorData} " +
                         "patchState=${status.patchState} attention=${status.attention}",
@@ -269,9 +269,9 @@ class LibreWearListenerService : WearableListenerService() {
     private fun stopLocalConnection() {
         scope.launch {
             AutomaticSensorHandoff.cancel()
-            val wasActive = LibreCR.manager.state.value.isActiveStopTarget()
-            LibreCR.store.setAutoConnectEnabled(false)
-            val stopped = LibreCR.manager.stopAndJoin()
+            val wasActive = GlucoRitm.manager.state.value.isActiveStopTarget()
+            GlucoRitm.store.setAutoConnectEnabled(false)
+            val stopped = GlucoRitm.manager.stopAndJoin()
             SensorForegroundService.stop(this@LibreWearListenerService)
             WearDataSync.sendStopped(this@LibreWearListenerService, wasActive)
             BleLog.log("wear: local sensor connection stopped by peer stopped=$stopped active=$wasActive")

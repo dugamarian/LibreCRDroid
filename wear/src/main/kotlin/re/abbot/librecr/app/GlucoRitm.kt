@@ -15,14 +15,14 @@ import re.abbot.librecr.app.log.DiagnosticLogSettings
 import re.abbot.librecr.app.wear.WearDataSync
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
 import re.abbot.librecr.app.wear.ReceiverSessionBackup
-import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
+import re.abbot.librecr.app.wear.complication.GlucoRitmComplicationUpdater
 import re.abbot.librecr.app.wear.complication.WatchWeather
 
 /**
  * Minimal process-wide graph so the foreground service (which owns the
  * connection loop) and the UI (which observes it) share one manager + store.
  */
-object LibreCR {
+object GlucoRitm {
     @Volatile private var initialized = false
     lateinit var store: SensorStateStore
         private set
@@ -55,12 +55,12 @@ object LibreCR {
         scope.launch {
             appearance.settingsFlow
                 .distinctUntilChanged()
-                .collect { LibreComplicationUpdater.requestAll(app) }
+                .collect { GlucoRitmComplicationUpdater.requestAll(app) }
         }
         WearDataSync.fetchAppearance(app) { settings ->
             scope.launch {
                 appearance.save(settings)
-                LibreComplicationUpdater.requestAll(app)
+                GlucoRitmComplicationUpdater.requestAll(app)
             }
         }
         WearDataSync.requestAppearance(app)

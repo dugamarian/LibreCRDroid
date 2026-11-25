@@ -21,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.glucoseBroadcastDestinations
 import re.abbot.librecr.app.ui.common.LocalAppSettings
@@ -42,7 +42,7 @@ fun GlucoseBroadcastScreen(modifier: Modifier = Modifier) {
     ) {
         SectionCard(stringResource(R.string.broadcast_title)) {
             SettingsSwitchRow(stringResource(R.string.broadcast_enable), settings.enabled) { enabled ->
-                scope.launch { LibreCR.settings.setGlucoseBroadcastEnabled(enabled) }
+                scope.launch { GlucoRitm.settings.setGlucoseBroadcastEnabled(enabled) }
             }
             Text(stringResource(R.string.broadcast_description), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -63,7 +63,7 @@ fun GlucoseBroadcastScreen(modifier: Modifier = Modifier) {
             )
             FilledTonalButton(
                 enabled = parsed != null && changed,
-                onClick = { scope.launch { LibreCR.settings.setGlucoseBroadcastDestinations(destinations) } },
+                onClick = { scope.launch { GlucoRitm.settings.setGlucoseBroadcastDestinations(destinations) } },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.broadcast_save)) }
             Text(stringResource(R.string.broadcast_destinations_help), style = MaterialTheme.typography.bodyMedium,

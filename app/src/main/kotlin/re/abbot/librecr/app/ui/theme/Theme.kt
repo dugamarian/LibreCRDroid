@@ -20,7 +20,7 @@ import androidx.compose.ui.platform.LocalContext
  * components (button groups, flexible nav bars, wavy indicators) remain usable underneath it.
  */
 @Composable
-fun LibreCRTheme(
+fun GlucoRitmTheme(
     dark: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit,

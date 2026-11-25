@@ -7,7 +7,7 @@ import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.log.BleLog
 
 /**
@@ -22,9 +22,9 @@ class AutoConnectReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                LibreCR.init(context)
-                val session = LibreCR.store.loadSession()
-                val autoConnect = LibreCR.store.autoConnectEnabled()
+                GlucoRitm.init(context)
+                val session = GlucoRitm.store.loadSession()
+                val autoConnect = GlucoRitm.store.autoConnectEnabled()
                 if (session != null) {
                     ReceiverRecoveryService.ensure(context, re.abbot.librecr.app.wear.AutomaticSensorHandoff.monitoringRequired)
                 }

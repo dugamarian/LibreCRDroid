@@ -57,7 +57,7 @@ import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import kotlinx.coroutines.flow.first
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
 import re.abbot.librecr.protocol.TrendArrowShape
@@ -79,7 +79,7 @@ abstract class GlucoseWidget : GlanceAppWidget() {
     internal abstract val previewSizes: Set<DpSize>
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        LibreCR.init(context)
+        GlucoRitm.init(context)
         GlucoseWidgetUpdater.ensureChartHistory()
         val models = GlucoseWidgetUpdater.models()
         val initial = models.first()
@@ -106,7 +106,7 @@ class WideGlucoseWidget : GlucoseWidget() {
 abstract class GlucoseWidgetReceiver : GlanceAppWidgetReceiver() {
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
-        LibreCR.init(context)
+        GlucoRitm.init(context)
         GlucoseWidgetUpdater.onWidgetsChanged(context)
     }
 

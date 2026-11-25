@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_compact_name">LibreCR · Compact glucose</string>
-    <string name="widget_wide_name">LibreCR · Glucose with chart</string>
+    <string name="widget_compact_name">GlucoRitm · Compact glucose</string>
+    <string name="widget_wide_name">GlucoRitm · Glucose with chart</string>
     <string name="widget_description">Glucose, trend, rate per minute and reading age. Enlarge it to see the last 3 hours. Updates automatically.</string>
     <string name="widget_current">Current reading</string>
     <string name="widget_stale">Stale data</string>

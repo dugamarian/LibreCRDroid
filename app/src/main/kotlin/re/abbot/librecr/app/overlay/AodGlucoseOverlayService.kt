@@ -39,7 +39,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.SensorStateStore
 import re.abbot.librecr.app.log.BleLog
@@ -123,7 +123,7 @@ class AodGlucoseOverlayService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
         prefs = overlayPrefs()
         if (!prefsRegistered) {
             prefs.registerOnSharedPreferenceChangeListener(prefListener)
@@ -196,14 +196,14 @@ class AodGlucoseOverlayService : AccessibilityService() {
             }
         }
         scope.launch {
-            LibreCR.store.sessionFlow.collectLatest {
+            GlucoRitm.store.sessionFlow.collectLatest {
                 hasSession = it != null
                 wearDurationMinutes = it?.wearMinutes
                 publishReading()
             }
         }
         scope.launch {
-            LibreCR.store.sensorLifecycleFlow.collectLatest {
+            GlucoRitm.store.sensorLifecycleFlow.collectLatest {
                 lifecycleSnapshot = it
                 publishReading()
             }

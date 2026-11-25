@@ -8,8 +8,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import re.abbot.librecr.app.nfc.AndroidLibre3NfcReader
-import re.abbot.librecr.app.ui.LibreCRApp
-import re.abbot.librecr.app.ui.theme.LibreCRTheme
+import re.abbot.librecr.app.ui.GlucoRitmApp
+import re.abbot.librecr.app.ui.theme.GlucoRitmTheme
 import re.abbot.librecr.app.wear.weather.PhoneWeather
 
 /**
@@ -23,11 +23,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
         nfcReader = AndroidLibre3NfcReader(this)
         setContent {
-            LibreCRTheme {
-                LibreCRApp(nfcReader, onKeepScreenOnChange = ::setStandbyKeepScreenOn)
+            GlucoRitmTheme {
+                GlucoRitmApp(nfcReader, onKeepScreenOnChange = ::setStandbyKeepScreenOn)
             }
         }
     }

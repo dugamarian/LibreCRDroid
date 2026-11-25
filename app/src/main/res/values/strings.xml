@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">LibreCRDroid</string>
+    <string name="app_name" translatable="false">GlucoRitm</string>
     <string name="aod_accessibility_description">Afișează glicemia doar pe Always On Display.</string>
 
     <!-- Navigation + screen titles -->
     <string name="nav_home">Acasă</string>
     <string name="nav_stats">Statistici</string>
     <string name="nav_settings">Setări</string>
-    <string name="title_app">LibreCR</string>
+    <string name="title_app">GlucoRitm</string>
     <string name="title_sensor">Conectare Libre 3</string>
     <string name="title_alarms">Alarme</string>
     <string name="title_live_updates">Live Updates</string>
@@ -52,7 +52,7 @@
     <string name="standby_no_reading">fără citire</string>
     <string name="standby_title">StandBy</string>
     <string name="standby_enable">Activează StandBy</string>
-    <string name="standby_desc">Pe încărcătorul wireless, ecranul rămâne aprins în format orizontal și afișează ceasul și glicemia. Afișajul trece automat pe roșu în lumină slabă.</string>
+    <string name="standby_desc">Așază telefonul pe o latură, în poziție orizontală, pe încărcătorul wireless. Ecranul rămâne aprins și afișează ceasul și glicemia. În lumină slabă, afișajul trece automat pe roșu.</string>
     <string name="standby_hours_desc">Acest interval stabilește când se afișează roșu dacă senzorul de lumină nu poate furniza o măsurătoare. Poate trece de miezul nopții.</string>
     <string name="standby_next_alarm">Următoarea alarmă: %1$s</string>
     <string name="standby_battery_charging">Baterie %1$s, se încarcă</string>
@@ -175,7 +175,7 @@
     <string name="live_updates_promoted_blocked">Chipul promovat este dezactivat în setările Android.</string>
     <string name="live_updates_system_settings">Setări Android pentru Live Updates</string>
     <string name="live_updates_home_screen">Live Updates pe ecranul principal</string>
-    <string name="live_updates_home_screen_desc">Când este oprit, LibreCR nu mai cere promovarea Live Update; Android poate afișa în continuare notificarea normală pe lock-screen.</string>
+    <string name="live_updates_home_screen_desc">Când este oprit, GlucoRitm nu mai cere promovarea Live Update; Android poate afișa în continuare notificarea normală pe lock-screen.</string>
     <string name="live_updates_chip_section">Chip</string>
     <string name="live_updates_chip_preview">Exemplu: %1$s</string>
     <string name="live_updates_status_chip">Status chip</string>
@@ -339,7 +339,7 @@
     <string name="agreement_title">Acord de utilizare</string>
     <string name="agreement_accept">Sunt de acord</string>
     <string name="agreement_exit">Ieșire</string>
-    <string name="agreement_body">LibreCRDroid este software experimental, open-source, care citește un senzor FreeStyle Libre 3 prin Bluetooth. NU este un dispozitiv medical și NU este aprobat sau certificat pentru utilizare medicală.\n\n• Nu lua nicio decizie de tratament, dozare sau medicală pe baza acestei aplicații. Confirmă întotdeauna cu un glucometru cu înțepare și urmează sfatul medicului.\n\n• Aplicația folosește inginerie inversă pe un protocol nedocumentat și se poate opri, poate afișa valori greșite, poate rata citiri sau poate eșua fără avertisment.\n\n• Utilizarea aplicației poate afecta senzorul, inclusiv bateria și durata lui de viață; dezvoltatorii nu sunt responsabili pentru pierderea sau defectarea senzorului.\n\n• Acest proiect nu este afiliat, aprobat sau susținut de Abbott. FreeStyle și Libre sunt mărci ale deținătorilor lor.\n\n• Software-ul este oferit „ca atare”, fără nicio garanție. Îl folosești pe propriul risc. Dezvoltatorii nu își asumă nicio răspundere pentru daune, vătămări sau pierderi rezultate din utilizare.\n\nApăsând „Sunt de acord” confirmi că ai citit și ai înțeles acest acord și îți asumi întreaga responsabilitate pentru utilizarea aplicației.</string>
+    <string name="agreement_body">GlucoRitm este software experimental, open-source, care citește un senzor FreeStyle Libre 3 prin Bluetooth. NU este un dispozitiv medical și NU este aprobat sau certificat pentru utilizare medicală.\n\n• Nu lua nicio decizie de tratament, dozare sau medicală pe baza acestei aplicații. Confirmă întotdeauna cu un glucometru cu înțepare și urmează sfatul medicului.\n\n• Aplicația folosește inginerie inversă pe un protocol nedocumentat și se poate opri, poate afișa valori greșite, poate rata citiri sau poate eșua fără avertisment.\n\n• Utilizarea aplicației poate afecta senzorul, inclusiv bateria și durata lui de viață; dezvoltatorii nu sunt responsabili pentru pierderea sau defectarea senzorului.\n\n• Acest proiect nu este afiliat, aprobat sau susținut de Abbott. FreeStyle și Libre sunt mărci ale deținătorilor lor.\n\n• Software-ul este oferit „ca atare”, fără nicio garanție. Îl folosești pe propriul risc. Dezvoltatorii nu își asumă nicio răspundere pentru daune, vătămări sau pierderi rezultate din utilizare.\n\nApăsând „Sunt de acord” confirmi că ai citit și ai înțeles acest acord și îți asumi întreaga responsabilitate pentru utilizarea aplicației.</string>
     <string name="automatic_handoff_title">Telefon prioritar, ceas de rezervă</string>
     <string name="automatic_handoff_enabled">Activează preluarea automată pe ceas</string>
     <string name="automatic_handoff_description">Telefonul păstrează conexiunea cu senzorul. Ceasul rămâne pregătit în fundal, cu o notificare permanentă, și încearcă preluarea când detectează pierderea telefonului sau lipsa datelor acestuia. La revenirea telefonului în apropiere, ceasul îi cedează conexiunea. Conectarea depinde de disponibilitatea Bluetooth a senzorului și de Wear OS. Dezactivarea păstrează dispozitivul curent; schimbarea manuală a rutei oprește modul automat.</string>

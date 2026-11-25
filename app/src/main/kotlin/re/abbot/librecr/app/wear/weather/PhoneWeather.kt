@@ -36,7 +36,7 @@ import kotlin.math.roundToInt
 internal data class WeatherPlace(val label: String, val latitude: Double, val longitude: Double)
 
 internal object PhoneWeather {
-    private const val TAG = "LibreCRWeather"
+    private const val TAG = "GlucoRitmWeather"
     private const val MIN_REFRESH_MS = 5 * 60_000L
     private val lock = Mutex()
 

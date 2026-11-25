@@ -10,7 +10,7 @@
     <string name="idrive_diagnostics_title">Connection diagnostics</string>
     <string name="idrive_copy_diagnostics">Copy diagnostics</string>
     <string name="idrive_title">BMW iDrive</string>
-    <string name="idrive_car_title">LibreCR · Glucose</string>
+    <string name="idrive_car_title">GlucoRitm · Glucose</string>
     <string name="idrive_settings_subtitle">Glucose screen through an AAIdrive addon</string>
     <string name="idrive_enable">Dedicated iDrive screen</string>
     <string name="idrive_description">Shows glucose, trend, delta and a three-hour chart in Material 3 cards. Uses your selected unit and target range, with phone or watch readings.</string>
@@ -24,7 +24,7 @@
     <string name="idrive_retrying">Connection interrupted or authentication failed. Retrying automatically.</string>
     <string name="idrive_open_aaidrive">Open AAIdrive</string>
     <string name="idrive_setup_title">Connection</string>
-    <string name="idrive_setup">1. Enable the dedicated screen here.\n2. Open AAIdrive and check for LibreCRDroid under Addons.\n3. Connect the phone to BMW through Connected Apps. Reconnect if it was already connected during installation.\n4. LibreCR · Glucose opens automatically after connecting. You can reopen it from the car’s Connected Apps / ConnectedDrive menu.</string>
+    <string name="idrive_setup">1. Enable the dedicated screen here.\n2. Open AAIdrive and check for GlucoRitm under Addons.\n3. Connect the phone to BMW through Connected Apps. Reconnect if it was already connected during installation.\n4. GlucoRitm · Glucose opens automatically after connecting. You can reopen it from the car’s Connected Apps / ConnectedDrive menu.</string>
     <string name="idrive_limits">Experimental integration for NBT/NBT Evo. Requires installed AAIdrive and its working BMW/MINI connection. Readings are hidden after six minutes. The screen occupies its own iDrive page. Keep phone or watch glucose alarms enabled.</string>
     <string name="idrive_chart_title">Glucose history</string>
     <string name="idrive_chart_title_short">History</string>

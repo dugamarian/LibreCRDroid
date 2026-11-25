@@ -26,7 +26,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LibreCRDroid"
+rootProject.name = "GlucoRitm"
 include(":protocol")
 include(":app")
 include(":wear")

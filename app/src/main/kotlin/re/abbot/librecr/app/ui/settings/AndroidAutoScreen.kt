@@ -40,7 +40,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.auto.AndroidAutoGlucoseNotifications
 import re.abbot.librecr.app.auto.AndroidAutoNotificationFactory
@@ -64,7 +64,7 @@ fun AndroidAutoScreen(modifier: Modifier = Modifier) {
 
     fun persist(value: Boolean) {
         enabled = value
-        scope.launch { LibreCR.settings.setAndroidAutoNotificationsEnabled(value) }
+        scope.launch { GlucoRitm.settings.setAndroidAutoNotificationsEnabled(value) }
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         notificationsAllowed = AndroidAutoNotificationFactory.notificationsAllowed(context)

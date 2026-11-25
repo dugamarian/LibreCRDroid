@@ -7,9 +7,9 @@ import android.content.Intent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.log.BleLog
-import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
+import re.abbot.librecr.app.wear.complication.GlucoRitmComplicationUpdater
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
 
 /**
@@ -24,13 +24,13 @@ class AutoConnectReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                LibreCR.init(context)
+                GlucoRitm.init(context)
                 // A loop that survived the Bluetooth restart may still wait on a connect which the
                 // restarted stack no longer knows; the start below is ignored while that loop runs.
-                if (action == BluetoothAdapter.ACTION_STATE_CHANGED) LibreCR.manager.onBluetoothRestarted()
-                LibreComplicationUpdater.requestAll(context)
-                val session = LibreCR.store.loadSession()
-                val autoConnect = LibreCR.store.autoConnectEnabled()
+                if (action == BluetoothAdapter.ACTION_STATE_CHANGED) GlucoRitm.manager.onBluetoothRestarted()
+                GlucoRitmComplicationUpdater.requestAll(context)
+                val session = GlucoRitm.store.loadSession()
+                val autoConnect = GlucoRitm.store.autoConnectEnabled()
                 if (session != null) {
                     if (AutomaticSensorHandoff.phonePriorityServiceRequired) SensorForegroundService.ensureStandby(context)
                     else ReceiverRecoveryService.ensure(context, AutomaticSensorHandoff.monitoringRequired)

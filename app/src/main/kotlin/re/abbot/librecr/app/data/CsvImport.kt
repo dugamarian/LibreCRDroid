@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.stats.GlucoseSample
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -32,7 +32,7 @@ suspend fun importLibreViewCsv(context: Context, uri: Uri): Int = withContext(Di
         }
     }
     if (samples.isEmpty()) throw IllegalStateException("Nu am găsit valori de glicemie în fișier.")
-    LibreCR.history.importSamples(samples)
+    GlucoRitm.history.importSamples(samples)
 }
 
 /** Date formats LibreView exports use across regions; the first match wins. */

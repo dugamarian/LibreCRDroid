@@ -9,7 +9,7 @@ import android.os.Build
 import java.util.EnumMap
 import re.abbot.librecr.app.live.WearLiveUpdatesNotifier
 import re.abbot.librecr.app.log.BleLog
-import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
+import re.abbot.librecr.app.wear.complication.GlucoRitmComplicationUpdater
 
 /**
  * Wear redraws neither a chip's critical text nor a complication image by itself, and app delays
@@ -86,13 +86,13 @@ object GlucoseAgeAlarm {
     class Receiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != ACTION_AGE_TICK) return
-            LibreCR.init(context)
+            GlucoRitm.init(context)
             fired(context, System.currentTimeMillis())
             // Repost the chip's minutes and repaint the glucose complications (at the expiry this
             // also turns the value stale on time); each re-arms its next change.
             WearLiveUpdatesNotifier.refresh(context)
             val pending = goAsync()
-            LibreComplicationUpdater.requestGlucose(context).invokeOnCompletion { pending.finish() }
+            GlucoRitmComplicationUpdater.requestGlucose(context).invokeOnCompletion { pending.finish() }
         }
     }
 }

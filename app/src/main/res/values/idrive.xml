@@ -10,7 +10,7 @@
     <string name="idrive_diagnostics_title">Diagnostic conexiune</string>
     <string name="idrive_copy_diagnostics">Copiază diagnosticul</string>
     <string name="idrive_title">BMW iDrive</string>
-    <string name="idrive_car_title">LibreCR · Glicemie</string>
+    <string name="idrive_car_title">GlucoRitm · Glicemie</string>
     <string name="idrive_settings_subtitle">Ecran de glicemie prin addon AAIdrive</string>
     <string name="idrive_enable">Ecran dedicat în iDrive</string>
     <string name="idrive_description">Afișează glicemia, trendul, delta și graficul ultimelor trei ore în carduri Material 3. Folosește unitatea și intervalul țintă din aplicație, cu citiri de pe telefon sau ceas.</string>
@@ -24,7 +24,7 @@
     <string name="idrive_retrying">Conexiune întreruptă sau autentificare nereușită. Reîncearcă automat.</string>
     <string name="idrive_open_aaidrive">Deschide AAIdrive</string>
     <string name="idrive_setup_title">Conectare</string>
-    <string name="idrive_setup">1. Activează ecranul dedicat aici.\n2. Deschide AAIdrive și verifică LibreCRDroid în Addons.\n3. Conectează telefonul la BMW prin Connected Apps. Dacă era deja conectat la instalare, reconectează-l.\n4. Ecranul LibreCR · Glicemie se deschide automat după conectare. Îl poți redeschide din meniul Connected Apps / ConnectedDrive al mașinii.</string>
+    <string name="idrive_setup">1. Activează ecranul dedicat aici.\n2. Deschide AAIdrive și verifică GlucoRitm în Addons.\n3. Conectează telefonul la BMW prin Connected Apps. Dacă era deja conectat la instalare, reconectează-l.\n4. Ecranul GlucoRitm · Glicemie se deschide automat după conectare. Îl poți redeschide din meniul Connected Apps / ConnectedDrive al mașinii.</string>
     <string name="idrive_limits">Integrare experimentală pentru NBT/NBT Evo. Necesită AAIdrive instalat și conexiunea sa BMW/MINI funcțională. Datele vechi sunt ascunse după șase minute. Ecranul ocupă propria pagină iDrive. Păstrează alarmele de glicemie de pe telefon sau ceas active.</string>
     <string name="idrive_chart_title">Evoluție glicemie</string>
     <string name="idrive_chart_title_short">Evoluție</string>

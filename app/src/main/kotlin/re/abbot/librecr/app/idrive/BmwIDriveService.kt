@@ -24,7 +24,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.stats.GlucoseSample
@@ -58,7 +58,7 @@ class BmwIDriveService : Service() {
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + Dispatchers.Main.immediate)
     private val transport = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "LibreCR-iDrive").apply { isDaemon = true }
+        Thread(runnable, "GlucoRitm-iDrive").apply { isDaemon = true }
     }.asCoroutineDispatcher()
     private val endpoint = MutableStateFlow<IDriveEndpoint?>(null)
     private val securityReady = MutableStateFlow(false)
@@ -67,12 +67,12 @@ class BmwIDriveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        LibreCR.init(applicationContext)
+        GlucoRitm.init(applicationContext)
         security = SecurityAccess.getInstance(applicationContext)
         security.callback = { securityReady.value = security.isConnected() }
         scope.launch {
             combine(
-                LibreCR.settings.settingsFlow.map { it.bmwIDriveEnabled }.distinctUntilChanged(),
+                GlucoRitm.settings.settingsFlow.map { it.bmwIDriveEnabled }.distinctUntilChanged(),
                 endpoint,
                 securityReady,
             ) { enabled, connection, authenticated -> Triple(enabled, connection, authenticated) }
@@ -156,7 +156,7 @@ class BmwIDriveService : Service() {
                     sessionScope.launch {
                         while (isActive) {
                             try {
-                                chartHistory.value = LibreCR.history.chartSamples(System.currentTimeMillis() - IDRIVE_CHART_WINDOW_MS)
+                                chartHistory.value = GlucoRitm.history.chartSamples(System.currentTimeMillis() - IDRIVE_CHART_WINDOW_MS)
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
@@ -175,8 +175,8 @@ class BmwIDriveService : Service() {
                         mutableStatus.value = IDriveAddonStatus.CONNECTED
                         failures = 0
                         // Read storage once a minute; the independent clock only checks freshness.
-                        combine(GlucoseWidgetUpdater.inputs(), LibreCR.settings.settingsFlow, chartHistory,
-                            LibreCR.store.glucoseHistoryFlow, flow {
+                        combine(GlucoseWidgetUpdater.inputs(), GlucoRitm.settings.settingsFlow, chartHistory,
+                            GlucoRitm.store.glucoseHistoryFlow, flow {
                             while (true) {
                                 emit(System.currentTimeMillis())
                                 delay(1_000L)

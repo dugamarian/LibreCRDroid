@@ -132,7 +132,7 @@ internal object WatchWeather {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            Log.w("LibreCRWeather", "Weather sync unavailable: ${error.javaClass.simpleName}")
+            Log.w("GlucoRitmWeather", "Weather sync unavailable: ${error.javaClass.simpleName}")
         }
     }
 }
@@ -142,7 +142,7 @@ internal fun requestWeatherComplicationUpdates(context: Context) {
         try {
             ComplicationDataSourceUpdateRequester.create(context, ComponentName(context, service)).requestUpdateAll()
         } catch (error: RuntimeException) {
-            Log.w("LibreCRWeather", "Complication update unavailable: ${error.javaClass.simpleName}")
+            Log.w("GlucoRitmWeather", "Complication update unavailable: ${error.javaClass.simpleName}")
         }
     }
 }

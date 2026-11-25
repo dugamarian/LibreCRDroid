@@ -54,7 +54,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:localeConfig="@xml/locales_config"
-        android:theme="@style/Theme.LibreCR">
+        android:theme="@style/Theme.GlucoRitm">
 
         <meta-data
             android:name="com.google.android.gms.car.application"
@@ -148,7 +148,7 @@
             android:launchMode="singleInstance"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
-            android:theme="@style/Theme.LibreCR" />
+            android:theme="@style/Theme.GlucoRitm" />
 
         <receiver
             android:name=".alarm.AlarmActionReceiver"
@@ -166,10 +166,8 @@
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:launchMode="singleTask"
-            android:showWhenLocked="true"
             android:stateNotNeeded="true"
-            android:turnScreenOn="true"
-            android:theme="@style/Theme.LibreCR.Standby" />
+            android:theme="@style/Theme.GlucoRitm.Standby" />
 
         <receiver
             android:name=".ui.standby.StandbyPowerReceiver"

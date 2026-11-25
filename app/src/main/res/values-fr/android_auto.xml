@@ -6,7 +6,7 @@
     <string name="auto_notification_disabled">Désactivé</string>
     <string name="auto_notification_connected">Android Auto connecté</string>
     <string name="auto_notification_waiting">S\'affichera à la connexion à Android Auto</string>
-    <string name="auto_notification_permission">Autorisez les notifications LibreCRDroid pour afficher la carte.</string>
+    <string name="auto_notification_permission">Autorisez les notifications GlucoRitm pour afficher la carte.</string>
     <string name="auto_notification_system_settings">Paramètres des notifications</string>
     <string name="auto_notification_setup">Activer dans Android Auto</string>
     <string name="auto_notification_sideload">Pour un APK installé manuellement : dans les paramètres Android Auto du téléphone, appuyez 10 fois sur Version pour activer le mode développeur. Ouvrez les paramètres développeur depuis le menu ⋮ et activez Sources inconnues (Unknown sources). L\'autorisation Android d\'installer des APK est un réglage distinct.</string>

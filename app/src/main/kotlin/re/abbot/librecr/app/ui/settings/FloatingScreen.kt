@@ -52,7 +52,7 @@ fun FloatingScreen(modifier: Modifier = Modifier) {
     fun start() {
         if (!FloatingGlucoseOverlayService.canDrawOverlays(ctx)) {
             message = null
-            error = "Permisiunea de suprapunere lipsește. Permite LibreCRDroid în setarea deschisă."
+            error = "Permisiunea de suprapunere lipsește. Permite GlucoRitm în setarea deschisă."
             ctx.startActivity(FloatingGlucoseOverlayService.permissionIntent(ctx))
             return
         }

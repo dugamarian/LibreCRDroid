@@ -32,7 +32,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.AppSettings
 import re.abbot.librecr.app.nfc.AndroidLibre3NfcReader
@@ -63,12 +63,12 @@ private val TABS = listOf(
 )
 
 @Composable
-fun LibreCRApp(
+fun GlucoRitmApp(
     nfcReader: AndroidLibre3NfcReader,
     onKeepScreenOnChange: (Boolean) -> Unit = {},
 ) {
     val nav = rememberNavController()
-    val settings by LibreCR.settings.settingsFlow.collectAsStateWithLifecycle(initialValue = AppSettings())
+    val settings by GlucoRitm.settings.settingsFlow.collectAsStateWithLifecycle(initialValue = AppSettings())
     val agreementScope = rememberCoroutineScope()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
@@ -82,7 +82,7 @@ fun LibreCRApp(
         Box(Modifier.fillMaxSize()) {
             if (!settings.agreementAccepted) {
                 AgreementScreen(
-                    onAccept = { agreementScope.launch { LibreCR.settings.setAgreementAccepted(true) } },
+                    onAccept = { agreementScope.launch { GlucoRitm.settings.setAgreementAccepted(true) } },
                 )
             } else run {
                 Scaffold(

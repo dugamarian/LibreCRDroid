@@ -43,7 +43,7 @@ class BmwIDriveRegistrationTest {
     } as BMWRemotingServer
 
     private fun app() = BmwIDriveCarApp(
-        IDriveGlucoseRenderer(RuntimeEnvironment.getApplication()), "LibreCR · Glucose",
+        IDriveGlucoseRenderer(RuntimeEnvironment.getApplication()), "GlucoRitm · Glucose",
         dispatch = { it() }, onStage = { stages += it },
     )
 
@@ -93,7 +93,7 @@ class BmwIDriveRegistrationTest {
         val menu = calls.single { it.method == "am_registerApp" }
         assertNotEquals(metadata.id, menu.args[1])
         assertEquals(BmwIDriveCarApp.MENU_APP_ID, menu.args[1])
-        assertEquals("LibreCR · Glucose", (menu.args[2] as Map<*, *>)[1])
+        assertEquals("GlucoRitm · Glucose", (menu.args[2] as Map<*, *>)[1])
         assertEquals("REGISTERED", stages.last())
 
         app.listener.am_onAppEvent(11, BmwIDriveCarApp.APP_ID, BmwIDriveCarApp.MENU_APP_ID, null)

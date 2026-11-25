@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.app.widget.GlucoseWidgetInput
 import re.abbot.librecr.app.widget.GlucoseWidgetUpdater
@@ -58,7 +58,7 @@ object AndroidAutoGlucoseNotifications {
         session = loadSession(app)
         // A single process-lifetime observer is intentional: projection must be tracked while the
         // activity is backgrounded. No Activity is retained, and CarConnection is broadcast-driven.
-        LibreCR.appScope.launch(Dispatchers.Main.immediate) {
+        GlucoRitm.appScope.launch(Dispatchers.Main.immediate) {
             try {
                 connection = CarConnection(app)
                 connection!!.type.observeForever(Observer { type ->
@@ -73,8 +73,8 @@ object AndroidAutoGlucoseNotifications {
                 BleLog.log("android-auto: connection query failed: ${error.javaClass.simpleName}")
             }
         }
-        LibreCR.appScope.launch {
-            LibreCR.settings.settingsFlow
+        GlucoRitm.appScope.launch {
+            GlucoRitm.settings.settingsFlow
                 .map { it.androidAutoNotificationsEnabled }
                 .distinctUntilChanged()
                 .collectLatest { enabled ->
@@ -114,7 +114,7 @@ object AndroidAutoGlucoseNotifications {
     private suspend fun publish(context: Context, input: GlucoseWidgetInput, nowMs: Long) {
         mutex.withLock {
             // Recheck the persisted switch so a queued reading can never win a race against OFF.
-            if (!LibreCR.settings.current().androidAutoNotificationsEnabled) {
+            if (!GlucoRitm.settings.current().androidAutoNotificationsEnabled) {
                 clear(context)
                 return
             }
@@ -148,7 +148,7 @@ object AndroidAutoGlucoseNotifications {
             val completed = withTimeoutOrNull(8_000L) {
                 val input = GlucoseWidgetUpdater.inputs().first()
                 val ready = mutex.withLock {
-                    if (!LibreCR.settings.current().androidAutoNotificationsEnabled ||
+                    if (!GlucoRitm.settings.current().androidAutoNotificationsEnabled ||
                         connectionType.value != CarConnection.CONNECTION_TYPE_PROJECTION) return@withLock false
                     cancel(context)
                     session = AutoNotificationSession(token = UUID.randomUUID().toString())
@@ -172,7 +172,7 @@ object AndroidAutoGlucoseNotifications {
         connectionType.filterNotNull().first()
         val allowed = mutex.withLock {
             if (connectionType.value != CarConnection.CONNECTION_TYPE_PROJECTION || session.token != expectedToken ||
-                !LibreCR.settings.current().androidAutoNotificationsEnabled) return@withLock false
+                !GlucoRitm.settings.current().androidAutoNotificationsEnabled) return@withLock false
             when (action) {
                 ACTION_DISMISS -> {
                     session = dismissAutoNotification(session, expectedToken)
@@ -181,7 +181,7 @@ object AndroidAutoGlucoseNotifications {
                     cancel(context)
                 }
                 ACTION_DISABLE -> {
-                    LibreCR.settings.setAndroidAutoNotificationsEnabled(false)
+                    GlucoRitm.settings.setAndroidAutoNotificationsEnabled(false)
                     clear(context)
                 }
             }

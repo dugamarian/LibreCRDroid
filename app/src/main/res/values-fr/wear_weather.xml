@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="wear_weather_title">Météo sur la montre</string>
-    <string name="wear_weather_explanation">Le téléphone récupère la météo auprès d’Open-Meteo et la synchronise avec LibreCR Wear.</string>
+    <string name="wear_weather_explanation">Le téléphone récupère la météo auprès d’Open-Meteo et la synchronise avec GlucoRitm Wear.</string>
     <string name="wear_weather_phone_location">Position du téléphone</string>
     <string name="wear_weather_use_location">Utiliser la position du téléphone</string>
     <string name="wear_weather_refresh">Actualiser</string>

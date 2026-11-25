@@ -16,7 +16,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.ble.ConnectionState
 import re.abbot.librecr.app.data.ImportedSession
@@ -54,11 +54,11 @@ class PhonePriorityStandbyTest {
         try {
             context.startActivity(Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             instrumentation.waitForIdleSync()
-            LibreCR.init(context)
+            GlucoRitm.init(context)
             assertTrue("Fixture must seed standby ownership before watch initialization; run in a fresh process",
                 AutomaticSensorHandoff.phonePriorityServiceRequired)
             assertTrue("Standby must be foreground before takeover is armed", SensorForegroundService.prepareStandby(context))
-            assertEquals(ConnectionState.IDLE, LibreCR.manager.state.value)
+            assertEquals(ConnectionState.IDLE, GlucoRitm.manager.state.value)
             assertForeground(context)
 
             instrumentation.uiAutomation.executeShellCommand("input keyevent KEYCODE_HOME").close()
@@ -76,16 +76,16 @@ class PhonePriorityStandbyTest {
                     throw AssertionError("Takeover attempted a new service launch from the background")
             }
             prefs.edit().putBoolean("released", false).commit()
-            LibreCR.store.setAutoConnectEnabled(true)
+            GlucoRitm.store.setAutoConnectEnabled(true)
             assertTrue(SensorForegroundService.start(noServiceLaunches, allowCandidateFirstPair = true))
-            await { LibreCR.manager.state.value in setOf(ConnectionState.CONNECTING, ConnectionState.SCANNING, ConnectionState.RECONNECTING) }
+            await { GlucoRitm.manager.state.value in setOf(ConnectionState.CONNECTING, ConnectionState.SCANNING, ConnectionState.RECONNECTING) }
             assertForeground(context)
         } finally {
             AutomaticSensorHandoff.cancel()
-            LibreCR.store.setAutoConnectEnabled(false)
-            LibreCR.manager.stopAndJoin()
+            GlucoRitm.store.setAutoConnectEnabled(false)
+            GlucoRitm.manager.stopAndJoin()
             SensorForegroundService.stop(context)
-            LibreCR.store.clearSession()
+            GlucoRitm.store.clearSession()
             prefs.edit().clear().commit()
         }
     }

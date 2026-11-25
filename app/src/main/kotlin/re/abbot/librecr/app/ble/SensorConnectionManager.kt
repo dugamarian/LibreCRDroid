@@ -335,7 +335,7 @@ class SensorConnectionManager(
 
     private suspend fun <T> withReconnectWakeLock(block: suspend () -> T): T {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleReconnect")
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GlucoRitm:BleReconnect")
             ?: return block()
         wakeLock.setReferenceCounted(false)
         wakeLock.acquire(RECONNECT_WAKE_LOCK_TIMEOUT_MS)
@@ -801,7 +801,7 @@ class SensorConnectionManager(
 
     private suspend fun <T> withHandshakeWakeLock(block: suspend () -> T): T {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleHandshake")
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GlucoRitm:BleHandshake")
         if (wakeLock == null) {
             BleLog.log("power: handshake wake lock unavailable")
             return block()

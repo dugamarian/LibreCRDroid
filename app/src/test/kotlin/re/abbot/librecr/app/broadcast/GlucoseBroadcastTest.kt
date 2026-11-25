@@ -44,7 +44,7 @@ class GlucoseBroadcastTest {
         assertEquals("FortyFiveDown", intent.getStringExtra("com.eveningoutpost.dexdrip.Extras.BgSlopeName"))
         assertEquals("mmol", intent.getStringExtra("com.eveningoutpost.dexdrip.Extras.Display.Units"))
         assertEquals("re.abbot.librecr.app", intent.getStringExtra("com.eveningoutpost.dexdrip.Extras.Sender"))
-        assertEquals("LibreCRDroid (Libre 3)", intent.getStringExtra("com.eveningoutpost.dexdrip.Extras.SourceDesc"))
+        assertEquals("GlucoRitm (Libre 3)", intent.getStringExtra("com.eveningoutpost.dexdrip.Extras.SourceDesc"))
         assertEquals(120, intent.getIntExtra("re.abbot.librecr.app.Extras.LifeCount", -1))
         assertEquals("FALLING", intent.getStringExtra("re.abbot.librecr.app.Extras.Trend"))
         assertEquals(-1.5, intent.getDoubleExtra("re.abbot.librecr.app.Extras.DeltaMgDlPerMinute", 0.0), 0.0)

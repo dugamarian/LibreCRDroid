@@ -27,7 +27,7 @@ class PhoneWeatherJob : JobService() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                Log.w("LibreCRWeather", "Weather job failed: ${error.javaClass.simpleName}")
+                Log.w("GlucoRitmWeather", "Weather job failed: ${error.javaClass.simpleName}")
                 jobFinished(params, false)
             }
         }

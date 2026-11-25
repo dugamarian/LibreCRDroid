@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.live.WearLiveUpdatesNotifier
 import re.abbot.librecr.app.log.BleLog
 
@@ -30,7 +30,7 @@ class SensorForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -55,8 +55,8 @@ class SensorForegroundService : Service() {
 
     private fun startCollection(allowCandidateFirstPair: Boolean, passiveConnect: Boolean) {
         scope.launch {
-            val session = LibreCR.store.loadSession()
-            if (session == null || !LibreCR.store.autoConnectEnabled()) {
+            val session = GlucoRitm.store.loadSession()
+            if (session == null || !GlucoRitm.store.autoConnectEnabled()) {
                 BleLog.log("service: no session or receiver disabled; stopping")
                 if (!AutomaticSensorHandoff.phonePriorityServiceRequired) stopSelf()
                 return@launch
@@ -69,7 +69,7 @@ class SensorForegroundService : Service() {
                 "service: starting sensor manager with independent local handshake " +
                     "allowCandidateFirstPair=$allowCandidateFirstPair legacyKeyIgnored=${session.phase5RawKey != null}"
             )
-            LibreCR.manager.start(
+            GlucoRitm.manager.start(
                 scope,
                 session.withoutTransientCrypto(),
                 allowCandidateFirstPair = allowCandidateFirstPair,
@@ -82,7 +82,7 @@ class SensorForegroundService : Service() {
         instance = null
         foregroundReady.value = false
         startRequested = false
-        LibreCR.manager.stop()
+        GlucoRitm.manager.stop()
         scope.cancel()
         WearLiveUpdatesNotifier.stopForeground(this)
         super.onDestroy()

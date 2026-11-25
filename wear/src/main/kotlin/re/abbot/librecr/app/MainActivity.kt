@@ -65,7 +65,7 @@ import re.abbot.librecr.app.ble.isActiveGlucoseUnavailable
 import re.abbot.librecr.app.ble.toLastGlucose
 import re.abbot.librecr.app.service.SensorForegroundService
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
-import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
+import re.abbot.librecr.app.wear.complication.GlucoRitmComplicationUpdater
 import re.abbot.librecr.protocol.TrendArrowShape
 import re.abbot.librecr.protocol.dataplane.Libre3SensorAttention
 import re.abbot.librecr.protocol.dataplane.SensorLifecycle
@@ -76,10 +76,10 @@ import java.time.format.DateTimeFormatter
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        LibreCR.init(this)
+        GlucoRitm.init(this)
         AutomaticSensorHandoff.onAppVisible()
         resumeOwnedSensorConnection()
-        LibreComplicationUpdater.requestAll(this)
+        GlucoRitmComplicationUpdater.requestAll(this)
         setContent {
             WearTheme {
                 WearScreen()
@@ -90,8 +90,8 @@ class MainActivity : ComponentActivity() {
     private fun resumeOwnedSensorConnection() {
         lifecycleScope.launch {
             runCatching {
-                val session = LibreCR.store.loadSession()
-                val autoConnect = LibreCR.store.autoConnectEnabled()
+                val session = GlucoRitm.store.loadSession()
+                val autoConnect = GlucoRitm.store.autoConnectEnabled()
                 if (session == null || !autoConnect) {
                     BleLog.log("wear activity: auto-start skipped session=${session != null} enabled=$autoConnect")
                     return@launch
@@ -126,12 +126,12 @@ private fun WearScreen() {
     var showLiveOptions by remember { mutableStateOf(false) }
     // Live in-memory reading drives the UI so decode→ui is instant; the persisted DataStore value
     // is only the cold-start fallback (before the service has produced a reading this session).
-    val live by LibreCR.manager.glucose.collectAsState()
-    val persisted by LibreCR.store.lastGlucoseFlow.collectAsState(initial = null)
-    val session by LibreCR.store.sessionFlow.collectAsState(initial = null)
-    val liveSensorStatus by LibreCR.manager.sensorStatus.collectAsState()
-    val persistedSensorStatus by LibreCR.store.sensorStatusFlow.collectAsState(initial = null)
-    val connectionState by LibreCR.manager.state.collectAsState()
+    val live by GlucoRitm.manager.glucose.collectAsState()
+    val persisted by GlucoRitm.store.lastGlucoseFlow.collectAsState(initial = null)
+    val session by GlucoRitm.store.sessionFlow.collectAsState(initial = null)
+    val liveSensorStatus by GlucoRitm.manager.sensorStatus.collectAsState()
+    val persistedSensorStatus by GlucoRitm.store.sensorStatusFlow.collectAsState(initial = null)
+    val connectionState by GlucoRitm.manager.state.collectAsState()
     // Collection is asynchronous/non-blocking; the live snapshot always wins once available.
     val sensorStatus = liveSensorStatus ?: persistedSensorStatus
     val attention = sensorStatus?.attention ?: Libre3SensorAttention.None
@@ -157,7 +157,7 @@ private fun WearScreen() {
         WearGlucoseDisplayStatus.NORMAL -> null
     }
     val reading = if (displayStatus == WearGlucoseDisplayStatus.NORMAL) baseReading else null
-    val appearance by LibreCR.appearance.settingsFlow.collectAsState(initial = WearAppearanceSettings())
+    val appearance by GlucoRitm.appearance.settingsFlow.collectAsState(initial = WearAppearanceSettings())
     var burnInFrameIndex by remember { mutableStateOf(0) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()

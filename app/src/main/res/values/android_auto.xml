@@ -7,7 +7,7 @@
     <string name="auto_notification_disabled">Dezactivat</string>
     <string name="auto_notification_connected">Android Auto conectat</string>
     <string name="auto_notification_waiting">Se va afișa la conectarea la Android Auto</string>
-    <string name="auto_notification_permission">Permite notificările LibreCRDroid pentru a afișa cardul.</string>
+    <string name="auto_notification_permission">Permite notificările GlucoRitm pentru a afișa cardul.</string>
     <string name="auto_notification_system_settings">Setările notificărilor</string>
     <string name="auto_notification_setup">Activare în Android Auto</string>
     <string name="auto_notification_sideload">Pentru APK-ul instalat manual: în setările Android Auto de pe telefon, apasă de 10 ori pe Versiune pentru a activa modul dezvoltator. Din meniul ⋮ deschide Setări pentru dezvoltatori și activează Surse necunoscute (Unknown sources). Permisiunea de instalare APK din Android este o setare separată.</string>

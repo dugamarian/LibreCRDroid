@@ -17,7 +17,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.ConnectionState
@@ -41,7 +41,7 @@ class SensorForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
         running = true
         createChannel()
     }
@@ -64,13 +64,13 @@ class SensorForegroundService : Service() {
         } else startCollection(allowCandidateFirstPair, intent?.getBooleanExtra(EXTRA_PASSIVE_CONNECT, false) == true)
         if (glucoseCollectorJob?.isActive != true) {
             glucoseCollectorJob = scope.launch {
-                // Alarms + cloud upload are handled process-wide in LibreCR (keyed on the data
+                // Alarms + cloud upload are handled process-wide in GlucoRitm (keyed on the data
                 // store), so they fire for watch-relayed readings too. Here we just keep the
                 // foreground notification current.
                 combine(
-                    LibreCR.manager.glucose,
-                    LibreCR.settings.settingsFlow,
-                    LibreCR.manager.state,
+                    GlucoRitm.manager.glucose,
+                    GlucoRitm.settings.settingsFlow,
+                    GlucoRitm.manager.state,
                 ) { glucose, settings, state -> Triple(glucose, settings.unit, state) }.collectLatest { (g, unit, state) ->
                     val text = when {
                         g == null && state.isUnavailableForGlucoseDisplay() -> getString(R.string.standby_no_reading)
@@ -91,15 +91,15 @@ class SensorForegroundService : Service() {
 
     private fun startCollection(allowCandidateFirstPair: Boolean, passiveConnect: Boolean) {
         scope.launch {
-            val session = LibreCR.store.loadSession()
-            if (session == null || !LibreCR.store.autoConnectEnabled()) {
+            val session = GlucoRitm.store.loadSession()
+            if (session == null || !GlucoRitm.store.autoConnectEnabled()) {
                 BleLog.log("service: no session or receiver disabled; stopping")
                 if (!AutomaticSensorHandoff.phonePriorityEnabled) stopSelf()
                 return@launch
             }
             warmupDurationMinutes = session.warmupMinutes ?: SensorLifecycle.DEFAULT_WARMUP_DURATION_MINUTES
             BleLog.log("service: starting sensor manager with independent local handshake allowCandidateFirstPair=$allowCandidateFirstPair")
-            LibreCR.manager.start(scope, session.withoutTransientCrypto(),
+            GlucoRitm.manager.start(scope, session.withoutTransientCrypto(),
                 allowCandidateFirstPair = allowCandidateFirstPair, passiveConnect = passiveConnect)
         }
     }
@@ -108,7 +108,7 @@ class SensorForegroundService : Service() {
         instance = null
         startRequested = false
         running = false
-        LibreCR.manager.stop()
+        GlucoRitm.manager.stop()
         scope.cancel()
         super.onDestroy()
     }
@@ -134,7 +134,7 @@ class SensorForegroundService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
             .setWhen(observedAtMs ?: System.currentTimeMillis())
             .setShowWhen(observedAtMs != null && observedAtMs > 0L)
-            .setContentTitle("LibreCR sensor")
+            .setContentTitle("GlucoRitm sensor")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)

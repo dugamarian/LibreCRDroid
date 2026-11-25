@@ -29,7 +29,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.overlay.AodGlucoseOverlayService
 import re.abbot.librecr.app.overlay.AodSettings
@@ -62,7 +62,7 @@ fun AodScreen(modifier: Modifier = Modifier) {
     fun start() {
         val started = AodGlucoseOverlayService.start(ctx)
         message = if (started) "AOD pornit. Se afișează doar pe Always-On Display." else null
-        error = if (started) null else "Pentru AOD activează serviciul LibreCRDroid din Accesibilitate. Am deschis setările."
+        error = if (started) null else "Pentru AOD activează serviciul GlucoRitm din Accesibilitate. Am deschis setările."
     }
 
     fun stop() {
@@ -83,31 +83,31 @@ fun AodScreen(modifier: Modifier = Modifier) {
                 stringResource(R.string.standby_enable),
                 appSettings.redStandbyEnabled,
             ) { enabled ->
-                scope.launch { LibreCR.settings.setRedStandbyEnabled(enabled) }
+                scope.launch { GlucoRitm.settings.setRedStandbyEnabled(enabled) }
             }
             Text(
                 stringResource(R.string.standby_desc),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                stringResource(R.string.standby_hours_desc),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
             )
             StandbyTimeSlider(
                 label = stringResource(R.string.alarms_start),
                 minutes = appSettings.redStandbyStartMinutes,
                 enabled = appSettings.redStandbyEnabled,
             ) { start ->
-                scope.launch { LibreCR.settings.setRedStandbyWindow(start, appSettings.redStandbyEndMinutes) }
+                scope.launch { GlucoRitm.settings.setRedStandbyWindow(start, appSettings.redStandbyEndMinutes) }
             }
             StandbyTimeSlider(
                 label = stringResource(R.string.alarms_end),
                 minutes = appSettings.redStandbyEndMinutes,
                 enabled = appSettings.redStandbyEnabled,
             ) { end ->
-                scope.launch { LibreCR.settings.setRedStandbyWindow(appSettings.redStandbyStartMinutes, end) }
+                scope.launch { GlucoRitm.settings.setRedStandbyWindow(appSettings.redStandbyStartMinutes, end) }
             }
-            Text(
-                stringResource(R.string.standby_hours_desc),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-            )
         }
 
         SectionCard("Always-On Display") {

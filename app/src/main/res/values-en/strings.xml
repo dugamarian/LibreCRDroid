@@ -6,7 +6,7 @@
     <string name="nav_home">Home</string>
     <string name="nav_stats">Statistics</string>
     <string name="nav_settings">Settings</string>
-    <string name="title_app">LibreCR</string>
+    <string name="title_app">GlucoRitm</string>
     <string name="title_sensor">Libre 3 connection</string>
     <string name="title_alarms">Alarms</string>
     <string name="title_live_updates">Live Updates</string>
@@ -51,7 +51,7 @@
     <string name="standby_no_reading">no reading</string>
     <string name="standby_title">StandBy</string>
     <string name="standby_enable">Enable StandBy</string>
-    <string name="standby_desc">On a wireless charger, the screen stays on in landscape and shows the clock and glucose. The display automatically turns red in low light.</string>
+    <string name="standby_desc">Place the phone on its side in landscape on a wireless charger. The screen stays on and shows the clock and glucose. The display automatically turns red in low light.</string>
     <string name="standby_hours_desc">These hours determine when the display turns red if a light reading is unavailable. The interval can cross midnight.</string>
     <string name="standby_next_alarm">Next alarm: %1$s</string>
     <string name="standby_battery_charging">Battery %1$s, charging</string>
@@ -174,7 +174,7 @@
     <string name="live_updates_promoted_blocked">The promoted chip is disabled in Android settings.</string>
     <string name="live_updates_system_settings">Android Live Updates settings</string>
     <string name="live_updates_home_screen">Live Updates on home screen</string>
-    <string name="live_updates_home_screen_desc">When this is off, LibreCR stops requesting promoted Live Updates; Android may still show the normal lock-screen notification.</string>
+    <string name="live_updates_home_screen_desc">When this is off, GlucoRitm stops requesting promoted Live Updates; Android may still show the normal lock-screen notification.</string>
     <string name="live_updates_chip_section">Chip</string>
     <string name="live_updates_chip_preview">Example: %1$s</string>
     <string name="live_updates_status_chip">Status chip</string>
@@ -337,7 +337,7 @@
     <string name="agreement_title">User Agreement</string>
     <string name="agreement_accept">I Agree</string>
     <string name="agreement_exit">Exit</string>
-    <string name="agreement_body">LibreCRDroid is experimental, open-source software that reads a FreeStyle Libre 3 sensor over Bluetooth. It is NOT a medical device and is NOT approved or certified for any medical use.\n\n• Do not make any treatment, dosing, or medical decision based on this app. Always confirm with a fingerstick blood glucose meter and follow your healthcare professional\'s advice.\n\n• The app reverse-engineers an undocumented protocol and may stop working, show wrong values, miss readings, or fail without notice.\n\n• Using the app may affect the sensor, including its battery and lifetime; the developers are not responsible for any sensor loss or malfunction.\n\n• This project is not affiliated with, endorsed by, or supported by Abbott. FreeStyle and Libre are trademarks of their respective owners.\n\n• The software is provided \"as is\", without any warranty. You use it entirely at your own risk. The developers accept no liability for any harm, injury, or loss arising from its use.\n\nBy tapping \"I Agree\" you confirm that you have read and understood this agreement and accept full responsibility for using the app.</string>
+    <string name="agreement_body">GlucoRitm is experimental, open-source software that reads a FreeStyle Libre 3 sensor over Bluetooth. It is NOT a medical device and is NOT approved or certified for any medical use.\n\n• Do not make any treatment, dosing, or medical decision based on this app. Always confirm with a fingerstick blood glucose meter and follow your healthcare professional\'s advice.\n\n• The app reverse-engineers an undocumented protocol and may stop working, show wrong values, miss readings, or fail without notice.\n\n• Using the app may affect the sensor, including its battery and lifetime; the developers are not responsible for any sensor loss or malfunction.\n\n• This project is not affiliated with, endorsed by, or supported by Abbott. FreeStyle and Libre are trademarks of their respective owners.\n\n• The software is provided \"as is\", without any warranty. You use it entirely at your own risk. The developers accept no liability for any harm, injury, or loss arising from its use.\n\nBy tapping \"I Agree\" you confirm that you have read and understood this agreement and accept full responsibility for using the app.</string>
     <string name="automatic_handoff_title">Phone priority, watch backup</string>
     <string name="automatic_handoff_enabled">Enable automatic watch takeover</string>
     <string name="automatic_handoff_description">The phone keeps the sensor connection. The watch stays ready in the background with an ongoing notification and attempts takeover when it detects that the phone is absent or its readings have stopped. When the phone is nearby again, the watch returns the connection. Connection timing depends on sensor Bluetooth availability and Wear OS. Turning this off keeps the current collector; changing the route manually turns automatic mode off.</string>

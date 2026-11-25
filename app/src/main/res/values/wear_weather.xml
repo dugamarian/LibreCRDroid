@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="wear_weather_title">Vreme pe ceas</string>
-    <string name="wear_weather_explanation">Telefonul preia vremea de la Open-Meteo și o trimite către LibreCR Wear.</string>
+    <string name="wear_weather_explanation">Telefonul preia vremea de la Open-Meteo și o trimite către GlucoRitm Wear.</string>
     <string name="wear_weather_phone_location">Locația telefonului</string>
     <string name="wear_weather_use_location">Folosește locația telefonului</string>
     <string name="wear_weather_refresh">Actualizează acum</string>

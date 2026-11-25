@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.GlucoseUnit
-import re.abbot.librecr.app.ui.theme.LibreCRTheme
+import re.abbot.librecr.app.ui.theme.GlucoRitmTheme
 
 /** Full-screen, lock-screen-visible glucose alarm with Snooze / Stop. */
 class AlarmActivity : ComponentActivity() {
@@ -65,7 +65,7 @@ class AlarmActivity : ComponentActivity() {
         startFeedback()
 
         setContent {
-            LibreCRTheme(dynamicColor = false) {
+            GlucoRitmTheme(dynamicColor = false) {
                 AlarmScreen(
                     kind = kind,
                     mgDl = mgDl,

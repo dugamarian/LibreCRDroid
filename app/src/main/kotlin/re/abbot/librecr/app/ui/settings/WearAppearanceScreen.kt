@@ -41,7 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.WearAppearanceSettings
 import re.abbot.librecr.app.data.WearDisplayFontWeight
@@ -62,7 +62,7 @@ fun WearAppearanceScreen(modifier: Modifier = Modifier) {
 
     fun update(transform: (WearAppearanceSettings) -> WearAppearanceSettings) {
         val next = transform(appearance).withTargets(appSettings.targetLow, appSettings.targetHigh)
-        scope.launch { LibreCR.settings.setWearAppearance(next) }
+        scope.launch { GlucoRitm.settings.setWearAppearance(next) }
     }
 
     Column(

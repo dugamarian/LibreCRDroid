@@ -110,7 +110,7 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.core.content.res.ResourcesCompat
 import kotlinx.coroutines.delay
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ble.GlucoseDisplayStatus
 import re.abbot.librecr.app.ble.GlucoseUi
@@ -166,12 +166,12 @@ internal fun StandbyScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val local by LibreCR.manager.glucose.collectAsState()
-    val remote by LibreCR.store.lastGlucoseFlow.collectAsState(initial = null)
-    val session by LibreCR.store.sessionFlow.collectAsState(initial = null)
-    val warmup by LibreCR.store.sensorWarmupFlow.collectAsState(initial = null)
-    val sensorStatus by LibreCR.store.sensorStatusFlow.collectAsState(initial = null)
-    val connectionState by LibreCR.manager.state.collectAsState()
+    val local by GlucoRitm.manager.glucose.collectAsState()
+    val remote by GlucoRitm.store.lastGlucoseFlow.collectAsState(initial = null)
+    val session by GlucoRitm.store.sessionFlow.collectAsState(initial = null)
+    val warmup by GlucoRitm.store.sensorWarmupFlow.collectAsState(initial = null)
+    val sensorStatus by GlucoRitm.store.sensorStatusFlow.collectAsState(initial = null)
+    val connectionState by GlucoRitm.manager.state.collectAsState()
     // The widget/AOD model carries the merged three-hour series (SQLite minutes + the live ring).
     val chartModels = remember { GlucoseWidgetUpdater.models() }
     val chartModel by chartModels.collectAsState(initial = null)

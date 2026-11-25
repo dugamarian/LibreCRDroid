@@ -8,14 +8,14 @@ import androidx.wear.watchface.complications.data.PlainComplicationText
 import androidx.wear.watchface.complications.data.ShortTextComplicationData
 import androidx.wear.watchface.complications.data.TimeFormatComplicationText
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.log.BleLog
 
 class DateComplicationService : TrackedComplicationDataSourceService() {
     override fun onCreate() {
         super.onCreate()
-        LibreCR.init(this)
+        GlucoRitm.init(this)
     }
 
     override fun getPreviewData(type: ComplicationType): ComplicationData =

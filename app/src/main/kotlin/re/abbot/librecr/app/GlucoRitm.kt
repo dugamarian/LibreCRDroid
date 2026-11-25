@@ -32,7 +32,7 @@ import re.abbot.librecr.app.auto.AndroidAutoGlucoseNotifications
  * Minimal process-wide graph so the foreground service (which owns the
  * connection loop) and the UI (which observes it) share one manager + stores.
  */
-object LibreCR {
+object GlucoRitm {
     @Volatile private var initialized = false
     lateinit var store: SensorStateStore
         private set

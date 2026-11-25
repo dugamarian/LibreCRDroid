@@ -22,7 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.LiveUpdateSettings
 import re.abbot.librecr.app.data.SensorStateStore
@@ -50,7 +50,7 @@ fun LiveUpdatesScreen(modifier: Modifier = Modifier) {
 
     fun persist(next: LiveUpdateSettings) {
         liveUpdates = next
-        scope.launch { LibreCR.settings.setLiveUpdates(next) }
+        scope.launch { GlucoRitm.settings.setLiveUpdates(next) }
     }
 
     Column(

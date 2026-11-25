@@ -1,6 +1,6 @@
 # AAIdrive Google Maps companion bridge
 
-Historical integration: the current LibreCRDroid iDrive page has returned to the
+Historical integration: the current GlucoRitm iDrive page has returned to the
 three-hour glucose chart and no longer uses this bridge or its navigation controls.
 These companion sources remain available as a reference; the AAIdrive app itself
 does not need to be changed to use the restored glucose chart.

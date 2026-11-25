@@ -25,7 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.ui.common.LocalAppSettings
 import re.abbot.librecr.app.ui.common.SectionCard
@@ -52,7 +52,7 @@ internal fun WearDeviceSelector(modifier: Modifier = Modifier) {
 
     fun select(nodeId: String, displayName: String) {
         scope.launch {
-            LibreCR.settings.setSelectedWearNode(nodeId, displayName)
+            GlucoRitm.settings.setSelectedWearNode(nodeId, displayName)
         }
     }
 

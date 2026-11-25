@@ -12,7 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.MainActivity
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.log.BleLog
@@ -80,12 +80,12 @@ object StalenessWatchdog {
     }
 
     private suspend fun check(app: Context) {
-        val session = runCatching { LibreCR.store.loadSession() }.getOrNull()
+        val session = runCatching { GlucoRitm.store.loadSession() }.getOrNull()
         if (session == null) {
             BleLog.log("staleness: check fired with no session — disarmed")
             return
         }
-        val last = runCatching { LibreCR.store.loadLastGlucose() }.getOrNull()
+        val last = runCatching { GlucoRitm.store.loadLastGlucose() }.getOrNull()
         if (last == null) {
             BleLog.log("staleness: check fired with no reading ever — disarmed until first reading")
             return
@@ -99,7 +99,7 @@ object StalenessWatchdog {
         }
         // The staleness alert is an alarm: it obeys the master alarms switch, its own toggle,
         // and the same active-hours window as the other non-urgent alarms.
-        val alarms = runCatching { LibreCR.settings.current().alarms }.getOrNull()
+        val alarms = runCatching { GlucoRitm.settings.current().alarms }.getOrNull()
         if (alarms == null || !alarms.enabled || !alarms.stalenessEnabled) {
             BleLog.log("staleness: stale but alert disabled (master=${alarms?.enabled} staleness=${alarms?.stalenessEnabled}) — disarmed until next reading")
             return

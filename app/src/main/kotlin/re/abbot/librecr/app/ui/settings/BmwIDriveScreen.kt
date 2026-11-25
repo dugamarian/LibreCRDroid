@@ -34,7 +34,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.BmwIDriveDisplayMode
 import re.abbot.librecr.app.idrive.AAIdriveResources
@@ -67,7 +67,7 @@ fun BmwIDriveScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionCard(stringResource(R.string.idrive_title)) {
             SettingsSwitchRow(stringResource(R.string.idrive_enable), settings.bmwIDriveEnabled) { enabled ->
-                scope.launch { LibreCR.settings.setBmwIDriveEnabled(enabled) }
+                scope.launch { GlucoRitm.settings.setBmwIDriveEnabled(enabled) }
             }
             Text(stringResource(R.string.idrive_description), style = MaterialTheme.typography.bodyMedium)
             val statusText = when {
@@ -99,7 +99,7 @@ fun BmwIDriveScreen(modifier: Modifier = Modifier) {
                 ).forEach { (mode, label) ->
                     val selected = settings.bmwIDriveDisplayMode == mode
                     Row(Modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton, onClick = {
-                        scope.launch { LibreCR.settings.setBmwIDriveDisplayMode(mode) }
+                        scope.launch { GlucoRitm.settings.setBmwIDriveDisplayMode(mode) }
                     }).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         RadioButton(selected, onClick = null)

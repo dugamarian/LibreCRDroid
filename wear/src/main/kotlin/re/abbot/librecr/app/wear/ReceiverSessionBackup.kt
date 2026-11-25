@@ -12,7 +12,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.data.ImportedSession
 import re.abbot.librecr.app.log.BleLog
 import re.abbot.librecr.protocol.connection.RecoveryPolicy
@@ -73,7 +73,7 @@ object ReceiverSessionBackup {
                 val raw = String(bytes, Charsets.UTF_8)
                 val incoming = ImportedSession.fromJson(raw)
                 mutex.withLock {
-                    val local = LibreCR.store.loadSession() ?: return@withLock
+                    val local = GlucoRitm.store.loadSession() ?: return@withLock
                     if (!sameSensor(local, incoming) || incoming.phase5RawKey == null) return@withLock
                     val changedAt = JSONObject(raw).optLong("_keyChangedAtMs", 0)
                     val saved = prefs.getString("session", null)?.let { runCatching { ImportedSession.fromJson(it) }.getOrNull() }
@@ -90,25 +90,25 @@ object ReceiverSessionBackup {
     }
 
     suspend fun adopt(nodeId: String = "") = mutex.withLock {
-        val local = LibreCR.store.loadSession() ?: return@withLock
+        val local = GlucoRitm.store.loadSession() ?: return@withLock
         if (nodeId.isNotBlank() && prefs.getString("node", "") != nodeId) return@withLock
         val incoming = prefs.getString("session", null)?.let {
             runCatching { ImportedSession.fromJson(it) }.getOrNull()
         } ?: return@withLock
-        val ownKey = LibreCR.store.loadCachedPhase5RawKey()
+        val ownKey = GlucoRitm.store.loadCachedPhase5RawKey()
         if (sameSensor(local, incoming) && RecoveryPolicy.shouldAdoptBackup(
                 ownKey != null, prefs.getLong("localVerifiedAt", 0), prefs.getLong("peerChangedAt", 0), System.currentTimeMillis())) {
             // Only the reusable reconnect key is copied, never per-link encryption material.
-            incoming.phase5RawKey?.let { LibreCR.store.saveCachedPhase5RawKey(it) }
+            incoming.phase5RawKey?.let { GlucoRitm.store.saveCachedPhase5RawKey(it) }
         }
     }
 
     suspend fun acceptReleasedSession(raw: String) = mutex.withLock {
         val incoming = ImportedSession.fromJson(raw)
-        val local = LibreCR.store.loadSession() ?: return@withLock
+        val local = GlucoRitm.store.loadSession() ?: return@withLock
         require(sameSensor(local, incoming))
         incoming.phase5RawKey?.let {
-            LibreCR.store.saveCachedPhase5RawKey(it)
+            GlucoRitm.store.saveCachedPhase5RawKey(it)
             prefs.edit().putLong("localVerifiedAt", System.currentTimeMillis()).commit()
         }
     }

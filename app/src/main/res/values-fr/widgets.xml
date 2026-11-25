@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_compact_name">LibreCR · Glycémie compacte</string>
-    <string name="widget_wide_name">LibreCR · Glycémie avec graphique</string>
+    <string name="widget_compact_name">GlucoRitm · Glycémie compacte</string>
+    <string name="widget_wide_name">GlucoRitm · Glycémie avec graphique</string>
     <string name="widget_description">Glycémie, tendance, vitesse par minute et ancienneté de la mesure. Agrandi, il affiche les 3 dernières heures. Actualisation automatique.</string>
     <string name="widget_current">Mesure actuelle</string>
     <string name="widget_stale">Données anciennes</string>

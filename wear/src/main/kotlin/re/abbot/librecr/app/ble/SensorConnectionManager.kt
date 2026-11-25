@@ -38,7 +38,7 @@ import re.abbot.librecr.app.wear.WearDataSync
 import re.abbot.librecr.app.wear.AutomaticSensorHandoff
 import re.abbot.librecr.app.wear.ReceiverSessionBackup
 import re.abbot.librecr.protocol.connection.FailedReconnectTracker
-import re.abbot.librecr.app.wear.complication.LibreComplicationUpdater
+import re.abbot.librecr.app.wear.complication.GlucoRitmComplicationUpdater
 import re.abbot.librecr.app.wear.complication.StaleRepaintScheduler
 import re.abbot.librecr.protocol.dataplane.DataFrame
 import re.abbot.librecr.protocol.dataplane.DataPlaneChannel
@@ -370,7 +370,7 @@ class SensorConnectionManager(
     private fun acquireRecoveryWakeLock(timeoutMs: Long, phase: String) {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
         val previous = recoveryWakeLock
-        recoveryWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleRecovery").also {
+        recoveryWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GlucoRitm:BleRecovery").also {
             it.setReferenceCounted(false)
             it.acquire(timeoutMs)
         }
@@ -661,7 +661,7 @@ class SensorConnectionManager(
             readingIssueDetail = event.detail,
         )
         StaleRepaintScheduler.armFrom(context, event.receivedAtMs)
-        LibreComplicationUpdater.requestGlucose(context, event.lifeCount)
+        GlucoRitmComplicationUpdater.requestGlucose(context, event.lifeCount)
         BleLog.log(
             "WATCH_STATE_UPDATED lc=${event.lifeCount} source=remote usable=false " +
                 "issue=${event.reason} ${event.detail}",
@@ -1154,7 +1154,7 @@ class SensorConnectionManager(
         block: suspend () -> T,
     ): T {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LibreCR:BleHandshake")
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GlucoRitm:BleHandshake")
         if (wakeLock == null) {
             BleLog.log("power: handshake wake lock unavailable")
             return block()
@@ -1295,7 +1295,7 @@ class SensorConnectionManager(
                         // 2) Send to the phone straight from the decoded object (no DataStore reload),
                         //    and 3) refresh complications from the in-memory value.
                         WearDataSync.sendGlucose(context, reading, timeline)
-                        LibreComplicationUpdater.requestGlucose(context, r.lifeCount)
+                        GlucoRitmComplicationUpdater.requestGlucose(context, r.lifeCount)
                         if (firstRecoveredGlucose) {
                             awaitingFirstReadingAfterReconnect = false
                             val durationMs = decodedTs - reconnectStartedAtMs
@@ -1335,7 +1335,7 @@ class SensorConnectionManager(
                                 detail = issueDetail,
                             ),
                         )
-                        LibreComplicationUpdater.requestGlucose(context, r.lifeCount)
+                        GlucoRitmComplicationUpdater.requestGlucose(context, r.lifeCount)
                     }
                     // The reconnect ladder restarts once realtime data decrypts again, never merely on
                     // GATT connect. A packet without a value counts too: warm-up and sensor errors
@@ -1414,7 +1414,7 @@ class SensorConnectionManager(
                             store.queueSensorStatus(s.errorData, s.patchState, observedAtMs)
                             WearDataSync.sendSensorStatus(context, s.errorData, s.patchState, observedAtMs)
                             SensorAttentionNotifier.onAttentionChanged(context, s.sensorAttention)
-                            LibreComplicationUpdater.requestGlucose(context)
+                            GlucoRitmComplicationUpdater.requestGlucose(context)
                         }
                         val missingStart = lifeCountTracker.backfillStart(s.currentLifeCount)
                         if (missingStart != null && backfillRequests != null) {

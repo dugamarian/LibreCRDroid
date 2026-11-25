@@ -3,7 +3,7 @@ package re.abbot.librecr.app.ui.standby
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 
 /**
  * Manifest receiver: re-arms the runtime power receiver after boot / app update, and evaluates on
@@ -12,7 +12,7 @@ import re.abbot.librecr.app.LibreCR
  */
 class StandbyPowerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        LibreCR.init(context)
+        GlucoRitm.init(context)
         StandbyController.init(context)
     }
 }

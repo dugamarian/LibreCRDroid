@@ -10,7 +10,7 @@
     <string name="idrive_diagnostics_title">Diagnostic de connexion</string>
     <string name="idrive_copy_diagnostics">Copier le diagnostic</string>
     <string name="idrive_title">BMW iDrive</string>
-    <string name="idrive_car_title">LibreCR · Glycémie</string>
+    <string name="idrive_car_title">GlucoRitm · Glycémie</string>
     <string name="idrive_settings_subtitle">Écran de glycémie via un addon AAIdrive</string>
     <string name="idrive_enable">Écran dédié dans iDrive</string>
     <string name="idrive_description">Affiche la glycémie, la tendance, le delta et le graphique des trois dernières heures dans des fiches Material 3. Utilise votre unité et votre plage cible, avec les mesures du téléphone ou de la montre.</string>
@@ -24,7 +24,7 @@
     <string name="idrive_retrying">Connexion interrompue ou authentification échouée. Nouvelle tentative automatique.</string>
     <string name="idrive_open_aaidrive">Ouvrir AAIdrive</string>
     <string name="idrive_setup_title">Connexion</string>
-    <string name="idrive_setup">1. Activez l’écran dédié ici.\n2. Ouvrez AAIdrive et vérifiez LibreCRDroid dans Addons.\n3. Connectez le téléphone à BMW via Connected Apps. Reconnectez-le si la connexion était déjà active pendant l’installation.\n4. LibreCR · Glycémie s’ouvre automatiquement après la connexion. Vous pouvez le rouvrir dans le menu Connected Apps / ConnectedDrive de la voiture.</string>
+    <string name="idrive_setup">1. Activez l’écran dédié ici.\n2. Ouvrez AAIdrive et vérifiez GlucoRitm dans Addons.\n3. Connectez le téléphone à BMW via Connected Apps. Reconnectez-le si la connexion était déjà active pendant l’installation.\n4. GlucoRitm · Glycémie s’ouvre automatiquement après la connexion. Vous pouvez le rouvrir dans le menu Connected Apps / ConnectedDrive de la voiture.</string>
     <string name="idrive_limits">Intégration expérimentale pour NBT/NBT Evo. Nécessite AAIdrive installé et sa connexion BMW/MINI fonctionnelle. Les mesures sont masquées après six minutes. L’écran occupe sa propre page iDrive. Gardez les alarmes du téléphone ou de la montre activées.</string>
     <string name="idrive_chart_title">Évolution glycémie</string>
     <string name="idrive_chart_title_short">Évolution</string>

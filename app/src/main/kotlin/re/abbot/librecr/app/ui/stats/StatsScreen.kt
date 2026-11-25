@@ -63,7 +63,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import re.abbot.librecr.app.LibreCR
+import re.abbot.librecr.app.GlucoRitm
 import re.abbot.librecr.app.R
 import re.abbot.librecr.app.data.GlucoseUnit
 import re.abbot.librecr.app.data.importLibreViewCsv
@@ -152,7 +152,7 @@ fun StatsScreen(modifier: Modifier = Modifier) {
         value = ReportLoadState(loading = true, report = null)
         val report = withContext(Dispatchers.Default) {
             computeStatsReport(
-                LibreCR.history.samples(sinceMs),
+                GlucoRitm.history.samples(sinceMs),
                 settings.targetLow,
                 settings.targetHigh,
             )

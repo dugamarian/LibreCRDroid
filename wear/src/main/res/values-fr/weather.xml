@@ -2,7 +2,7 @@
 <resources>
     <string name="complication_date_weather">Date et météo</string>
     <string name="complication_date_weather_high_contrast">Date et météo (contraste élevé)</string>
-    <string name="weather_configure_on_phone">Configurez la météo dans LibreCR sur le téléphone, dans Paramètres → Wear OS.</string>
+    <string name="weather_configure_on_phone">Configurez la météo dans GlucoRitm sur le téléphone, dans Paramètres → Wear OS.</string>
     <string name="weather_done">Terminé</string>
     <string name="weather_description">^1, %1$s, %2$s</string>
     <string name="weather_stale_description">^1, dernière température disponible %1$s, %2$s</string>
